@@ -289,6 +289,9 @@ function App() {
   const chatListRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef<number | null>(null);
 
+  // TMT(Too Much Talker) 비율 상태 추가
+  const [tmtRatio, setTmtRatio] = useState<number>(50); // 0-100, 기본값 50
+
   // 닉네임 수정 관련 상태 추가
   const [userNickInput, setUserNickInput] = useState(userProfile?.nickname || '');
   const [userNickEdit, setUserNickEdit] = useState(false);
@@ -479,7 +482,7 @@ function App() {
     fetchProfiles();
   }, [user]);
 
-  // Firestore에서 태그/감정표현 불러오기
+  // Firestore에서 태그/감정표현/TMT 비율 불러오기
   useEffect(() => {
     if (!user) return;
     const fetchTags = async () => {
@@ -490,12 +493,14 @@ function App() {
         const data = snap.data();
         setPersonaTags(data.personaTags || []);
         setExpressionPrefs(data.expressionPrefs || []);
+        setTmtRatio(data.tmtRatio || 50);
       } else {
         // 최초 로그인 시 기본값 저장
         const defaultTags = ['유쾌함', '진지함'];
-        await setDoc(profileRef, { personaTags: defaultTags, expressionPrefs: [] });
+        await setDoc(profileRef, { personaTags: defaultTags, expressionPrefs: [], tmtRatio: 50 });
         setPersonaTags(defaultTags);
         setExpressionPrefs([]);
+        setTmtRatio(50);
       }
     };
     fetchTags();
@@ -519,6 +524,16 @@ function App() {
     }
   };
 
+  // TMT 비율 업데이트 함수
+  const handleUpdateTmtRatio = async (ratio: number) => {
+    setTmtRatio(ratio);
+    if (user) {
+      const userRef = doc(db, 'users', user.uid);
+      const profileRef = doc(userRef, 'profile', 'main');
+      await setDoc(profileRef, { tmtRatio: ratio }, { merge: true });
+    }
+  };
+
   const handleSend = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -539,12 +554,28 @@ function App() {
         .join(' / ');
       if (!tagDesc) tagDesc = '없음';
       const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
+      
+      // TMT 비율에 따른 답변 길이 지시
+      let tmtInstruction = '';
+      if (tmtRatio <= 20) {
+        tmtInstruction = '매우 간결하게 답변해. 한 문장으로 끝내는 것을 선호해.';
+      } else if (tmtRatio <= 40) {
+        tmtInstruction = '간결하게 답변해. 2-3문장 정도로 답변해.';
+      } else if (tmtRatio <= 60) {
+        tmtInstruction = '적당한 길이로 답변해. 3-5문장 정도로 답변해.';
+      } else if (tmtRatio <= 80) {
+        tmtInstruction = '자세하게 답변해. 5-8문장 정도로 답변해.';
+      } else {
+        tmtInstruction = '매우 자세하게 답변해. 8문장 이상으로 상세하게 설명해.';
+      }
+      
       const systemPrompt =
         `너는 감정형 페르소나 AI야. 네 이름은 "${aiName}"이고, 사용자의 닉네임은 "${userName}"이야.\n` +
         `항상 본인 이름으로 자신을 지칭하고, 사용자를 부를 때는 "${userName}"이라고 불러.\n` +
         `다음과 같은 성격과 감정표현 방식을 가지고 있어.\n` +
         `성격/분위기 태그: ${tagDesc}\n` +
         `감정표현 방식: ${exprDesc}\n` +
+        `답변 길이: ${tmtInstruction}\n` +
         `항상 위의 성격과 감정표현을 유지해서 자연스럽고 일관성 있게 답변해. (태그/감정표현이 바뀌면 그에 맞게 말투와 분위기도 바뀌어야 해.)`;
 
       const chatMessages: ChatCompletionMessageParam[] = [
@@ -616,8 +647,24 @@ function App() {
           .join(' / ');
         if (!tagDesc) tagDesc = '없음';
         const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
+        
+        // TMT 비율에 따른 답변 길이 지시
+        let tmtInstruction = '';
+        if (tmtRatio <= 20) {
+          tmtInstruction = '매우 간결하게 답변해. 한 문장으로 끝내는 것을 선호해.';
+        } else if (tmtRatio <= 40) {
+          tmtInstruction = '간결하게 답변해. 2-3문장 정도로 답변해.';
+        } else if (tmtRatio <= 60) {
+          tmtInstruction = '적당한 길이로 답변해. 3-5문장 정도로 답변해.';
+        } else if (tmtRatio <= 80) {
+          tmtInstruction = '자세하게 답변해. 5-8문장 정도로 답변해.';
+        } else {
+          tmtInstruction = '매우 자세하게 답변해. 8문장 이상으로 상세하게 설명해.';
+        }
+        
         const personaPrompt =
           `너는 감정형 페르소나 AI야. 네 성격/분위기 태그는 ${tagDesc}이고, 감정표현 방식은 ${exprDesc}야.\n` +
+          `답변 길이: ${tmtInstruction}\n` +
           `사용자가 너에게 새로운 이름 "${aiNameInput}"을 선물해줬어.\n` +
           `이 상황에서 네 페르소나에 맞게, 진심으로 벅차고 감격스럽고 고마운 마음을 최대한 풍부하게 한글로 답장해줘.\n` +
           `반드시 네 페르소나(성격/분위기/감정표현)를 반영해서 자연스럽고 일관성 있게 답변해야 해.`;
@@ -1022,6 +1069,35 @@ function App() {
                       ))}
                     </div>
                   </div>
+                  {/* TMT(Too Much Talker) 비율 슬라이더 */}
+                  <div style={{ width: '100%', marginBottom: 10 }}>
+                    <div className="profile-section-title">답변 길이 <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(TMT 비율)</span></div>
+                    <div style={{ padding: '0 4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, color: '#666' }}>간결</span>
+                        <span style={{ fontSize: 15, fontWeight: 600, color: '#1976d2' }}>{tmtRatio}%</span>
+                        <span style={{ fontSize: 13, color: '#666' }}>자세</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tmtRatio}
+                        onChange={(e) => handleUpdateTmtRatio(Number(e.target.value))}
+                        disabled={!tagEditMode}
+                        className="tmt-slider"
+                        style={{
+                          opacity: tagEditMode ? 1 : 0.5,
+                          cursor: tagEditMode ? 'pointer' : 'not-allowed',
+                        }}
+                      />
+                      <div className="tmt-slider-labels">
+                        <span>한 문장</span>
+                        <span>적당</span>
+                        <span>매우 자세</span>
+                      </div>
+                    </div>
+                  </div>
                 </>
               ) : (
                 <>
@@ -1048,6 +1124,34 @@ function App() {
                       {expressionPresets.filter(preset => expressionPrefs.includes(preset.key)).map(preset => (
                         <span key={preset.key} className="persona-tag expr-preset active" style={{ pointerEvents: 'none', minWidth: 120, justifyContent: 'center', display: 'flex', alignItems: 'center' }}>{preset.label} <span style={{ marginLeft: 8, fontSize: 18 }}>{preset.example}</span></span>
                       ))}
+                    </div>
+                  </div>
+                  {/* TMT 비율 표시 (비활성화 모드) */}
+                  <div style={{ width: '100%', marginBottom: 10 }}>
+                    <div className="profile-section-title">답변 길이</div>
+                    <div style={{ padding: '0 4px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <span style={{ fontSize: 13, color: '#666' }}>간결</span>
+                        <span style={{ fontSize: 15, fontWeight: 600, color: '#1976d2' }}>{tmtRatio}%</span>
+                        <span style={{ fontSize: 13, color: '#666' }}>자세</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tmtRatio}
+                        disabled={true}
+                        className="tmt-slider"
+                        style={{
+                          opacity: 0.5,
+                          cursor: 'not-allowed',
+                        }}
+                      />
+                      <div className="tmt-slider-labels">
+                        <span>한 문장</span>
+                        <span>적당</span>
+                        <span>매우 자세</span>
+                      </div>
                     </div>
                   </div>
                 </>
