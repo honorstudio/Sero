@@ -292,6 +292,15 @@ function App() {
   // TMT(Too Much Talker) 비율 상태 추가
   const [tmtRatio, setTmtRatio] = useState<number>(50); // 0-100, 기본값 50
 
+  // 상태 변화 추적을 위한 useEffect 추가
+  useEffect(() => {
+    console.log('=== 상태 변화 추적 ===');
+    console.log('personaTags 변경:', personaTags);
+    console.log('expressionPrefs 변경:', expressionPrefs);
+    console.log('tmtRatio 변경:', tmtRatio);
+    console.log('========================');
+  }, [personaTags, expressionPrefs, tmtRatio]);
+
   // 닉네임 수정 관련 상태 추가
   const [userNickInput, setUserNickInput] = useState(userProfile?.nickname || '');
   const [userNickEdit, setUserNickEdit] = useState(false);
@@ -489,49 +498,83 @@ function App() {
       const userRef = doc(db, 'users', user.uid);
       const profileRef = doc(userRef, 'profile', 'main');
       const snap = await getDoc(profileRef);
+      
+      // 디버그 로그 추가
+      console.log('=== Firestore 데이터 불러오기 ===');
+      console.log('사용자 ID:', user.uid);
+      console.log('사용자 이메일:', user.email);
+      console.log('프로필 문서 존재:', snap.exists());
+      
       if (snap.exists()) {
         const data = snap.data();
+        console.log('Firestore 데이터:', data);
         setPersonaTags(data.personaTags || []);
         setExpressionPrefs(data.expressionPrefs || []);
         setTmtRatio(data.tmtRatio || 50);
+        console.log('설정된 페르소나 태그:', data.personaTags || []);
+        console.log('설정된 감정표현:', data.expressionPrefs || []);
+        console.log('설정된 TMT 비율:', data.tmtRatio || 50);
       } else {
         // 최초 로그인 시 기본값 저장
         const defaultTags = ['유쾌함', '진지함'];
+        console.log('최초 로그인 - 기본값 설정:', { personaTags: defaultTags, expressionPrefs: [], tmtRatio: 50 });
         await setDoc(profileRef, { personaTags: defaultTags, expressionPrefs: [], tmtRatio: 50 });
         setPersonaTags(defaultTags);
         setExpressionPrefs([]);
         setTmtRatio(50);
       }
+      console.log('========================');
     };
     fetchTags();
   }, [user]);
 
   // 태그/감정표현 변경 시 Firestore에 저장
   const handleUpdateTags = async (tags: string[]) => {
+    console.log('=== 태그 업데이트 ===');
+    console.log('사용자 ID:', user?.uid);
+    console.log('이전 태그:', personaTags);
+    console.log('새로운 태그:', tags);
+    
     setPersonaTags(tags);
     if (user) {
       const userRef = doc(db, 'users', user.uid);
       const profileRef = doc(userRef, 'profile', 'main');
       await setDoc(profileRef, { personaTags: tags }, { merge: true });
+      console.log('Firestore에 태그 저장 완료');
     }
+    console.log('========================');
   };
   const handleUpdateExpressionPrefs = async (prefs: string[]) => {
+    console.log('=== 감정표현 업데이트 ===');
+    console.log('사용자 ID:', user?.uid);
+    console.log('이전 감정표현:', expressionPrefs);
+    console.log('새로운 감정표현:', prefs);
+    
     setExpressionPrefs(prefs);
     if (user) {
       const userRef = doc(db, 'users', user.uid);
       const profileRef = doc(userRef, 'profile', 'main');
       await setDoc(profileRef, { expressionPrefs: prefs }, { merge: true });
+      console.log('Firestore에 감정표현 저장 완료');
     }
+    console.log('========================');
   };
 
   // TMT 비율 업데이트 함수
   const handleUpdateTmtRatio = async (ratio: number) => {
+    console.log('=== TMT 비율 업데이트 ===');
+    console.log('사용자 ID:', user?.uid);
+    console.log('이전 TMT 비율:', tmtRatio);
+    console.log('새로운 TMT 비율:', ratio);
+    
     setTmtRatio(ratio);
     if (user) {
       const userRef = doc(db, 'users', user.uid);
       const profileRef = doc(userRef, 'profile', 'main');
       await setDoc(profileRef, { tmtRatio: ratio }, { merge: true });
+      console.log('Firestore에 TMT 비율 저장 완료');
     }
+    console.log('========================');
   };
 
   const handleSend = async (e: FormEvent) => {
@@ -578,6 +621,19 @@ function App() {
         `답변 길이: ${tmtInstruction}\n` +
         `항상 위의 성격과 감정표현을 유지해서 자연스럽고 일관성 있게 답변해. (태그/감정표현이 바뀌면 그에 맞게 말투와 분위기도 바뀌어야 해.)`;
 
+      // 디버그 로그 추가
+      console.log('=== 페르소나 디버그 정보 ===');
+      console.log('사용자 ID:', user.uid);
+      console.log('사용자 이메일:', user.email);
+      console.log('AI 이름:', aiName);
+      console.log('사용자 닉네임:', userName);
+      console.log('페르소나 태그:', personaTags);
+      console.log('태그 카테고리:', tagCategories);
+      console.log('감정표현 설정:', expressionPrefs);
+      console.log('TMT 비율:', tmtRatio);
+      console.log('생성된 시스템 프롬프트:', systemPrompt);
+      console.log('========================');
+
       const chatMessages: ChatCompletionMessageParam[] = [
         { role: 'system', content: systemPrompt },
         ...messages.map(m => ({
@@ -586,11 +642,20 @@ function App() {
         }) as { role: 'user' | 'assistant'; content: string }),
         { role: 'user', content: input } as { role: 'user'; content: string },
       ];
+      
+      console.log('=== OpenAI API 호출 ===');
+      console.log('전송할 메시지:', chatMessages);
+      
       const res = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: chatMessages,
       });
       const aiText = res.choices[0].message?.content || '';
+      
+      console.log('=== AI 응답 ===');
+      console.log('AI 응답 텍스트:', aiText);
+      console.log('========================');
+      
       // GPT 응답 완료 후 순차 출력 시작
       await addAiMessagesWithDelay(aiText);
     } catch (err) {
@@ -978,22 +1043,44 @@ function App() {
                           className={`persona-tag ${personaTags.includes(tag.name) ? 'active' : 'inactive'}`}
                           onClick={() => {
                             if (!tagEditMode) return;
+                            console.log('=== 태그 클릭 이벤트 ===');
+                            console.log('클릭된 태그:', tag.name);
+                            console.log('현재 태그 상태:', personaTags);
+                            console.log('tagEditMode:', tagEditMode);
+                            
                             const isActive = personaTags.includes(tag.name);
                             let nextTags = [...personaTags];
                             const mainCount = allTags.filter(t => t.category === '대형' && nextTags.includes(t.name)).length;
+                            
+                            console.log('태그 활성 상태:', isActive);
+                            console.log('대형 카테고리 개수:', mainCount);
+                            
                             if (isActive) {
-                              if (mainCount <= 1) return; // 최소 1개
+                              if (mainCount <= 1) {
+                                console.log('최소 1개 유지 - 제거 불가');
+                                return;
+                              }
                               nextTags = nextTags.filter(t => t !== tag.name);
+                              console.log('태그 제거됨');
                             } else {
-                              if (mainCount >= 2) return; // 최대 2개
+                              if (mainCount >= 2) {
+                                console.log('최대 2개 초과 - 추가 불가');
+                                return;
+                              }
                               nextTags.push(tag.name);
+                              console.log('태그 추가됨');
                             }
+                            
+                            console.log('새로운 태그 배열:', nextTags);
                             setPersonaTags(nextTags);
+                            
                             if (user) {
                               const userRef = doc(db, 'users', user.uid);
                               const profileRef = doc(userRef, 'profile', 'main');
                               setDoc(profileRef, { personaTags: nextTags }, { merge: true });
+                              console.log('Firestore에 저장 완료');
                             }
+                            console.log('========================');
                           }}
                           style={{ pointerEvents: tagEditMode ? 'auto' : 'none' }}
                         >
@@ -1012,22 +1099,44 @@ function App() {
                           className={`persona-tag ${personaTags.includes(tag.name) ? 'active' : 'inactive'}`}
                           onClick={() => {
                             if (!tagEditMode) return;
+                            console.log('=== 성격 태그 클릭 이벤트 ===');
+                            console.log('클릭된 성격 태그:', tag.name);
+                            console.log('현재 태그 상태:', personaTags);
+                            console.log('tagEditMode:', tagEditMode);
+                            
                             const isActive = personaTags.includes(tag.name);
                             let nextTags = [...personaTags];
                             const typeCount = allTags.filter(t => t.category === '유형' && nextTags.includes(t.name)).length;
+                            
+                            console.log('태그 활성 상태:', isActive);
+                            console.log('유형 카테고리 개수:', typeCount);
+                            
                             if (isActive) {
-                              if (typeCount <= 1) return; // 최소 1개
+                              if (typeCount <= 1) {
+                                console.log('최소 1개 유지 - 제거 불가');
+                                return;
+                              }
                               nextTags = nextTags.filter(t => t !== tag.name);
+                              console.log('성격 태그 제거됨');
                             } else {
-                              if (typeCount >= 4) return; // 최대 4개
+                              if (typeCount >= 4) {
+                                console.log('최대 4개 초과 - 추가 불가');
+                                return;
+                              }
                               nextTags.push(tag.name);
+                              console.log('성격 태그 추가됨');
                             }
+                            
+                            console.log('새로운 태그 배열:', nextTags);
                             setPersonaTags(nextTags);
+                            
                             if (user) {
                               const userRef = doc(db, 'users', user.uid);
                               const profileRef = doc(userRef, 'profile', 'main');
                               setDoc(profileRef, { personaTags: nextTags }, { merge: true });
+                              console.log('Firestore에 성격 태그 저장 완료');
                             }
+                            console.log('========================');
                           }}
                           style={{ pointerEvents: tagEditMode ? 'auto' : 'none' }}
                         >
@@ -1046,21 +1155,43 @@ function App() {
                           className={`persona-tag expr-preset ${expressionPrefs.includes(preset.key) ? 'active' : 'inactive'}`}
                           onClick={() => {
                             if (!tagEditMode) return;
+                            console.log('=== 감정표현 태그 클릭 이벤트 ===');
+                            console.log('클릭된 감정표현:', preset.key, preset.label);
+                            console.log('현재 감정표현 상태:', expressionPrefs);
+                            console.log('tagEditMode:', tagEditMode);
+                            
                             let next = [...expressionPrefs];
                             const isActive = next.includes(preset.key);
+                            
+                            console.log('감정표현 활성 상태:', isActive);
+                            console.log('현재 감정표현 개수:', next.length);
+                            
                             if (isActive) {
-                              if (next.length <= 1) return; // 최소 1개
+                              if (next.length <= 1) {
+                                console.log('최소 1개 유지 - 제거 불가');
+                                return;
+                              }
                               next = next.filter(k => k !== preset.key);
+                              console.log('감정표현 제거됨');
                             } else {
-                              if (next.length >= 4) return; // 최대 4개
+                              if (next.length >= 4) {
+                                console.log('최대 4개 초과 - 추가 불가');
+                                return;
+                              }
                               next.push(preset.key);
+                              console.log('감정표현 추가됨');
                             }
+                            
+                            console.log('새로운 감정표현 배열:', next);
                             setExpressionPrefs(next);
+                            
                             if (user) {
                               const userRef = doc(db, 'users', user.uid);
                               const profileRef = doc(userRef, 'profile', 'main');
                               setDoc(profileRef, { expressionPrefs: next }, { merge: true });
+                              console.log('Firestore에 감정표현 저장 완료');
                             }
+                            console.log('========================');
                           }}
                           style={{ pointerEvents: tagEditMode ? 'auto' : 'none', minWidth: 120, justifyContent: 'center', display: 'flex', alignItems: 'center' }}
                         >
