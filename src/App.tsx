@@ -81,7 +81,7 @@ const getTagsByCategory = (tags: string[]) => {
 };
 
 // 파동/에너지 파티클 아바타 컴포넌트 (이미 import된 React/useRef/useEffect 사용)
-const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ size = 38, particleCount = 180 }) => {
+const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ size = 38, particleCount = 540 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fastTarget = useRef(1);
   const fastValue = useRef(1);
@@ -1221,7 +1221,7 @@ function App() {
         <div className="profile-bar" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="profile-info" onClick={handleProfileOpen}>
             <div className="profile-avatar" style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', background: 'transparent', boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)' }}>
-              <ParticleAvatar size={38} particleCount={180} />
+              <ParticleAvatar size={38} particleCount={540} />
             </div>
           </div>
           {/* 우측상단 사용자 프로필 아이콘 */}
