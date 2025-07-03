@@ -152,11 +152,11 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
         let particleRadius = 1;
         if (hovered || glow) {
           // 원형 테두리에 정확히 분포, 중앙 쪽으로만 살짝 튀는 효과
-          const drumFreq = 0.004;
+          const drumFreq = 0.0028; // 튀는 속도(30% 감소)
           const drumAmp = 4; // 튀는 세기 줄임
           const drum = Math.abs(Math.sin(t * drumFreq + p.phase)) * drumAmp;
           const targetRadius = rRef.current - drum;
-          p.currentRadius += (targetRadius - p.currentRadius) * 0.25;
+          p.currentRadius += (targetRadius - p.currentRadius) * 0.028;
           px = cxRef.current + p.currentRadius * Math.cos(p.angle);
           py = cyRef.current + p.currentRadius * Math.sin(p.angle);
         } else {
