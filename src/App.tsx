@@ -713,10 +713,13 @@ function App() {
     // 관계도 요약 추가
     const relationsSummary = getRelationsSummary();
 
-    // 현재 시간 한글 포맷
+    // 현재 시간 한글 포맷 + 타임존
     const now = new Date();
     const days = ['일', '월', '화', '수', '목', '금', '토'];
-    const nowStr = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 (${days[now.getDay()]}) ${now.getHours()}시 ${now.getMinutes()}분`;
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const offset = -now.getTimezoneOffset() / 60;
+    const offsetStr = (offset >= 0 ? '+' : '') + offset;
+    const nowStr = `${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 (${days[now.getDay()]}) ${now.getHours()}시 ${now.getMinutes()}분 (${tz}, GMT${offsetStr})`;
 
     // 시간+스케줄 고려 안내 추가
     const timeInstruction = `지금은 ${nowStr}입니다. 반드시 현재 시간과 너의 직업, 라이프스타일, 스케줄을 고려해서 답변해. 예를 들어 네가 회사원이라면 점심시간엔 점심을 먹고 있다거나, 바텐더라면 새벽에 일하고 오전엔 자고 있다거나, 학생이면 수업 중일 수 있다는 식으로, 시간대와 네 페르소나의 일상/스케줄을 자연스럽게 반영해서 답변해.`;
