@@ -728,30 +728,26 @@ function App() {
 
   // 대화 카운트 상태
   const [messageExtractCount, setMessageExtractCount] = useState(0);
-  const [messageExtractThreshold, setMessageExtractThreshold] = useState(10); // 기본값 10
+  const [messageExtractThreshold, setMessageExtractThreshold] = useState(2); // 기본값 2
 
-  // Firestore에서 대화 카운트와 threshold 불러오기
+  // Firestore에서 global/relation_count/count 불러오기
   useEffect(() => {
-    if (!user) return;
-    const fetchCount = async () => {
+    const fetchRelationCount = async () => {
       try {
-        const metaRef = doc(db, 'users', user.uid, 'meta', 'main');
-        const snap = await getDoc(metaRef);
+        const countRef = doc(db, 'global', 'relation_count');
+        const snap = await getDoc(countRef);
         if (snap.exists()) {
           const data = snap.data();
-          setMessageExtractCount(data.messageExtractCount || 0);
-          setMessageExtractThreshold(data.messageExtractThreshold || 10);
-        } else {
-          setMessageExtractCount(0);
-          setMessageExtractThreshold(10);
+          if (typeof data.count === 'number' && data.count > 0) {
+            setMessageExtractThreshold(data.count);
+          }
         }
       } catch (e) {
-        setMessageExtractCount(0);
-        setMessageExtractThreshold(10);
+        // 실패 시 기본값 유지
       }
     };
-    fetchCount();
-  }, [user]);
+    fetchRelationCount();
+  }, []);
 
   // 대화 카운트 증가 및 threshold마다 관계/자아 추출
   const incrementMessageExtractCount = async () => {
@@ -779,83 +775,99 @@ function App() {
           temperature: 0.2
         });
         const aiText = res.choices[0].message?.content || '';
+        console.log('GPT 응답:', aiText); // 디버그
         // JSON 파싱
         let extracted;
         try {
           extracted = JSON.parse(aiText.replace(/```json|```/g, '').trim());
         } catch (e) {
-          // 파싱 실패 시 무시
+          console.log('JSON 파싱 실패:', e, aiText); // 디버그
           extracted = null;
         }
+        console.log('파싱 결과:', extracted); // 디버그
         if (extracted) {
           // 1. 사용자 관계도
-          if (Array.isArray(extracted.userRelations) && extracted.userRelations.length > 0) {
-            const userRef = doc(db, 'users', user.uid, 'relations', 'user');
-            const userSnap = await getDoc(userRef);
-            let prev = userSnap.exists() ? userSnap.data().relations || [] : [];
-            // 기존 인물과 이름/타입이 같으면 episodes만 append, 없으면 새로 추가
-            extracted.userRelations.forEach((rel: any) => {
-              const idx = prev.findIndex((r: any) => r.name === rel.name && r.type === rel.type);
-              if (idx >= 0) {
-                // 에피소드 누적
-                prev[idx].episodes = Array.isArray(prev[idx].episodes) ? prev[idx].episodes : [];
-                rel.episodes = Array.isArray(rel.episodes) ? rel.episodes : [];
-                prev[idx].episodes = Array.from(new Set([...prev[idx].episodes, ...rel.episodes]));
-                if (rel.desc) prev[idx].desc = rel.desc;
-              } else {
-                prev.push(rel);
-              }
-            });
-            await setDoc(userRef, { relations: prev }, { merge: true });
+          if ((Array.isArray(extracted.userRelations) && extracted.userRelations.length > 0) || (Array.isArray(extracted.seroRelations) && extracted.seroRelations.length > 0)) {
+            const relationsRef = doc(db, 'relations', user.uid, 'main', 'data');
+            const relationsSnap = await getDoc(relationsRef);
+            let prevUser = relationsSnap.exists() && Array.isArray(relationsSnap.data().userRelations) ? relationsSnap.data().userRelations : [];
+            let prevSero = relationsSnap.exists() && Array.isArray(relationsSnap.data().seroRelations) ? relationsSnap.data().seroRelations : [];
+
+            // 첫 저장 시 '비어있음' 데이터 모두 제거
+            if (prevUser.length === 1 && prevUser[0].name === "비어있음") prevUser = [];
+            if (prevSero.length === 1 && prevSero[0].name === "비어있음") prevSero = [];
+
+            // 사용자 관계 누적 (동일 인물+관계면 에피소드만 추가)
+            if (Array.isArray(extracted.userRelations)) {
+              extracted.userRelations.forEach((rel: any) => {
+                const idx = prevUser.findIndex((r: any) => r.name === rel.name && r.type === rel.type);
+                if (idx >= 0) {
+                  prevUser[idx].episodes = Array.isArray(prevUser[idx].episodes) ? prevUser[idx].episodes : [];
+                  rel.episodes = Array.isArray(rel.episodes) ? rel.episodes : [];
+                  prevUser[idx].episodes = Array.from(new Set([...prevUser[idx].episodes, ...rel.episodes]));
+                  if (rel.desc) prevUser[idx].desc = rel.desc;
+                } else {
+                  prevUser.push(rel);
+                }
+              });
+            }
+
+            // 세로 관계 누적 (동일 인물+관계면 에피소드만 추가)
+            if (Array.isArray(extracted.seroRelations)) {
+              extracted.seroRelations.forEach((rel: any) => {
+                const idx = prevSero.findIndex((r: any) => r.name === rel.name && r.relation === rel.relation);
+                if (idx >= 0) {
+                  prevSero[idx].episodes = Array.isArray(prevSero[idx].episodes) ? prevSero[idx].episodes : [];
+                  rel.episodes = Array.isArray(rel.episodes) ? rel.episodes : [];
+                  prevSero[idx].episodes = Array.from(new Set([...prevSero[idx].episodes, ...rel.episodes]));
+                  if (rel.desc) prevSero[idx].desc = rel.desc;
+                } else {
+                  prevSero.push(rel);
+                }
+              });
+            }
+
+            try {
+              console.log('Firestore 저장(관계도 통합) 직전:', { userRelations: prevUser, seroRelations: prevSero });
+              await setDoc(relationsRef, { userRelations: prevUser, seroRelations: prevSero }, { merge: true });
+              console.log('Firestore 저장(관계도 통합) 완료');
+            } catch (e) {
+              console.log('Firestore 저장(관계도 통합) 에러:', e);
+            }
           }
-          // 2. 세로 관계도
-          if (Array.isArray(extracted.seroRelations) && extracted.seroRelations.length > 0) {
-            const seroRef = doc(db, 'users', user.uid, 'relations', 'sero');
-            const seroSnap = await getDoc(seroRef);
-            let prev = seroSnap.exists() ? seroSnap.data().characters || [] : [];
-            extracted.seroRelations.forEach((rel: any) => {
-              const idx = prev.findIndex((r: any) => r.name === rel.name && r.relation === rel.relation);
-              if (idx >= 0) {
-                prev[idx].episodes = Array.isArray(prev[idx].episodes) ? prev[idx].episodes : [];
-                rel.episodes = Array.isArray(rel.episodes) ? rel.episodes : [];
-                prev[idx].episodes = Array.from(new Set([...prev[idx].episodes, ...rel.episodes]));
-                if (rel.desc) prev[idx].desc = rel.desc;
-              } else {
-                prev.push(rel);
-              }
-            });
-            await setDoc(seroRef, { characters: prev }, { merge: true });
-          }
-          // 3. 세로 자아(세계관)
+          // 2. 세로 자아(세계관)
           if (extracted.seroIdentity) {
-            const identityRef = doc(db, 'users', user.uid, 'self', 'identity');
-            const identitySnap = await getDoc(identityRef);
-            let prevPlaces = identitySnap.exists() && Array.isArray(identitySnap.data().places) ? identitySnap.data().places : [];
-            let prevEvents = identitySnap.exists() && Array.isArray(identitySnap.data().events) ? identitySnap.data().events : [];
-            let prevNarr = identitySnap.exists() && Array.isArray(identitySnap.data().selfNarrative) ? identitySnap.data().selfNarrative : [];
-            // places
+            const profileRef = doc(db, 'users', user.uid, 'profile', 'main');
+            const profileSnap = await getDoc(profileRef);
+            let prevPlaces = profileSnap.exists() && Array.isArray(profileSnap.data().places) ? profileSnap.data().places : [];
+            let prevEvents = profileSnap.exists() && Array.isArray(profileSnap.data().events) ? profileSnap.data().events : [];
+            let prevNarr = profileSnap.exists() && Array.isArray(profileSnap.data().selfNarrative) ? profileSnap.data().selfNarrative : [];
             if (Array.isArray(extracted.seroIdentity.places)) {
               extracted.seroIdentity.places.forEach((place: any) => {
                 if (!prevPlaces.find((p: any) => p.name === place.name)) prevPlaces.push(place);
               });
             }
-            // events
             if (Array.isArray(extracted.seroIdentity.events)) {
               extracted.seroIdentity.events.forEach((ev: any) => {
                 if (!prevEvents.find((e: any) => e.name === ev.name)) prevEvents.push(ev);
               });
             }
-            // selfNarrative
             if (Array.isArray(extracted.seroIdentity.selfNarrative)) {
               extracted.seroIdentity.selfNarrative.forEach((narr: string) => {
                 if (!prevNarr.includes(narr)) prevNarr.push(narr);
               });
             }
-            await setDoc(identityRef, { places: prevPlaces, events: prevEvents, selfNarrative: prevNarr }, { merge: true });
+            try {
+              console.log('Firestore 저장(세로 자아, profile/main) 직전:', { places: prevPlaces, events: prevEvents, selfNarrative: prevNarr });
+              await setDoc(profileRef, { places: prevPlaces, events: prevEvents, selfNarrative: prevNarr }, { merge: true });
+              console.log('Firestore 저장(세로 자아, profile/main) 완료');
+            } catch (e) {
+              console.log('Firestore 저장(세로 자아, profile/main) 에러:', e);
+            }
           }
         }
       } catch (err) {
-        // GPT 호출 실패 시 무시
+        console.log('GPT 호출/전체 에러:', err); // 디버그
       }
       // 카운트 0으로 초기화
       setMessageExtractCount(0);
@@ -1070,6 +1082,23 @@ function App() {
       }
     };
     fetchCharacterProfile();
+  }, [user]);
+
+  // Firestore에 relations/{uid}/main/data 문서가 없으면 '비어있음' 한글 기본값으로 초기화
+  useEffect(() => {
+    if (!user) return;
+    const initRelations = async () => {
+      const relationsRef = doc(db, 'relations', user.uid, 'main', 'data');
+      const relationsSnap = await getDoc(relationsRef);
+      if (!relationsSnap.exists()) {
+        await setDoc(relationsRef, {
+          userRelations: [{ name: "비어있음", type: "비어있음", desc: "비어있음", episodes: ["비어있음"] }],
+          seroRelations: [{ name: "비어있음", relation: "비어있음", desc: "비어있음", episodes: ["비어있음"] }]
+        });
+        console.log('Firestore relations/{uid}/main/data 문서 "비어있음" 기본값으로 초기화 완료');
+      }
+    };
+    initRelations();
   }, [user]);
 
   if (!user) {
