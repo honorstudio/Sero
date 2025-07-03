@@ -105,7 +105,7 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
     const r = size / 2 - 1;
     // 파티클 상태: baseRadius(원래), targetRadius(목표), currentRadius(실제)
     const particles = Array.from({ length: particleCount }).map((_, i) => {
-      const theta = Math.random() * 2 * Math.PI;
+      const theta = Math.random() * 3 * Math.PI;
       const baseRadius = r * Math.sqrt(Math.random());
       return {
         baseX: cx,
@@ -117,14 +117,15 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
         freq: 1.6 + Math.random() * 2.4,
         amp: 2 + Math.random() * 2,
         phase: Math.random() * Math.PI * 2,
-        speed: 1.0 + Math.random() * 2.4,
+        speed: 1.0 + Math.random() * 1.4,
       };
     });
     let running = true;
     function draw(t: number) {
       if (!ctx) return;
       // fastValue → fastTarget으로 lerp
-      fastValue.current += (fastTarget.current - fastValue.current) * 0.07;
+      fastValue.current += (fastTarget.current - fastValue.current) * 0.05;
+      fastValue.current = Math.max(0.1, Math.min(1, fastValue.current));
       // colorLerpValue도 hovered/glow에 따라 부드럽게 lerp
       const colorTarget = hovered || glow ? 1 : 0;
       colorLerpValue.current += (colorTarget - colorLerpValue.current) * 0.08;
@@ -137,27 +138,38 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
       // 파티클 그리기
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
-        // 파티클 반지름 부드럽게 이동
-        p.currentRadius += (p.targetRadius - p.currentRadius) * 0.07;
-        // fastValue에 따라 파동/속도/진폭 변화
-        const freq = p.freq * fastValue.current;
-        const speed = p.speed * fastValue.current;
-        const amp = p.amp * (1 + 0.5 * (fastValue.current - 1));
-        const wave = Math.sin(t * 0.0008 * freq + p.phase) * amp;
-        const swirl = Math.cos(t * 0.0008 * speed + p.phase) * 1.5;
-        // 파티클 위치: 중심에서 currentRadius만큼 각도 방향으로
-        const px = cx + p.currentRadius * Math.cos(p.angle) + wave * Math.cos(p.angle) + swirl * Math.sin(p.angle * 2);
-        const py = cy + p.currentRadius * Math.sin(p.angle) + wave * Math.sin(p.angle) + swirl * Math.cos(p.angle * 2);
+        const θ = p.angle;
+        let px, py;
+        let particleRadius = (hovered || glow) ? 2.5 : 1;
+        if (hovered || glow) {
+          // 활성화: 원형 테두리로 모임
+          p.currentRadius += (r - p.currentRadius) * 0.12;
+          px = cx + p.currentRadius * Math.cos(θ);
+          py = cy + p.currentRadius * Math.sin(θ);
+        } else {
+          // 기본상태: 파도/물결(반원 곡선) + 노이즈 + 테두리 반사
+          const baseRadius = r * 0.7;
+          const wave = Math.sin(t * 0.001 + θ * 3 + p.phase) * 12;
+          let radius = baseRadius + wave;
+          // 테두리 반사/퍼짐
+          if (radius > r - 2) {
+            p.phase += Math.random() * 0.5; // 위상 변화로 물결 이어짐
+            radius = r - 2 - Math.abs(wave) * 0.5;
+          }
+          // 부드럽게 이동
+          p.currentRadius += (radius - p.currentRadius) * 0.09;
+          px = cx + p.currentRadius * Math.cos(θ);
+          py = cy + p.currentRadius * Math.sin(θ);
+        }
         // 활성화/비활성화에 따라 색상 자연스럽게 변화
         const colorLerp = colorLerpValue.current; // 1: 진한, 0: 밝은
-        // lerp: 밝은 #90caf9 → 진한 #1976d2
         const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
         const rC = Math.round(lerp(144, 25, colorLerp));
         const gC = Math.round(lerp(202, 118, colorLerp));
         const bC = Math.round(lerp(249, 210, colorLerp));
         const color = `rgba(${rC},${gC},${bC},0.95)`;
         ctx.beginPath();
-        ctx.arc(px, py, 1, 0, 2 * Math.PI);
+        ctx.arc(px, py, particleRadius, 0, 2 * Math.PI);
         ctx.fillStyle = color;
         ctx.shadowColor = color;
         ctx.shadowBlur = hovered || glow ? 3 : 1;
@@ -186,13 +198,13 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
   // 마우스 이벤트: 파티클 흩어짐/복귀, glow 효과
   const handleEnter = () => {
     setHovered(true);
-    fastTarget.current = 0.1;
+    fastTarget.current = 0.01;
     setGlow(true);
     setOuterGlow(true);
   };
   const handleLeave = () => {
     setHovered(false);
-    fastTarget.current = 1;
+    fastTarget.current = 2;
     setGlow(false);
     setOuterGlow(false);
   };
@@ -1501,15 +1513,15 @@ function App() {
                         }}
                       />
                       <div className="tmt-slider-labels">
-                        <span>한 문장</span>
+                        <span>단답</span>
                         <span>적당</span>
-                        <span>매우 자세</span>
+                        <span>TMT</span>
                       </div>
                     </div>
                   </div>
                   {/* 캐릭터 프로필 입력란 추가 */}
                   <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">가상 캐릭터 정보 <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(직접 수정 가능)</span></div>
+                    <div className="profile-section-title">정보<span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(직접 수정 가능)</span></div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <button type="button" onClick={handleAutoGenerateCharacter} disabled={characterGenLoading} style={{ marginBottom: 8, background: 'linear-gradient(90deg, #90caf9 0%, #1976d2 100%)', color: '#fff', fontWeight: 700, border: 'none', borderRadius: 14, padding: '8px 18px', fontSize: 15, cursor: characterGenLoading ? 'not-allowed' : 'pointer', boxShadow: '0 2px 8px 0 rgba(120,180,255,0.07)' }}>
                         {characterGenLoading ? '생성 중...' : '자동생성'}
