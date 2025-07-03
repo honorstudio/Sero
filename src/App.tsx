@@ -588,13 +588,39 @@ function App() {
     }
   };
 
-  // 시스템 프롬프트 생성 함수 (characterProfile, nickname 반영)
+  // 글로벌 세로 지침 상태
+  const [seroGuideline, setSeroGuideline] = useState('');
+  const [seroGuidelineLoading, setSeroGuidelineLoading] = useState(true);
+
+  // Firestore에서 글로벌 세로 지침 불러오기
+  useEffect(() => {
+    const fetchGuideline = async () => {
+      setSeroGuidelineLoading(true);
+      try {
+        const guidelineRef = doc(db, 'global', 'sero_guideline');
+        const snap = await getDoc(guidelineRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          setSeroGuideline(data.guideline || '');
+        } else {
+          setSeroGuideline('');
+        }
+      } catch (e) {
+        setSeroGuideline('');
+      }
+      setSeroGuidelineLoading(false);
+    };
+    fetchGuideline();
+  }, []);
+
+  // 시스템 프롬프트 생성 함수 (characterProfile, nickname, 글로벌 지침 반영)
   const updateSystemPrompt = (
     tags: string[],
     exprs: string[],
     tmt: number,
     charProf = characterProfile,
-    nickname = userProfile?.nickname || '사용자'
+    nickname = userProfile?.nickname || '사용자',
+    guideline = seroGuideline
   ) => {
     const aiName = aiProfile?.name || '세로';
     const userName = nickname;
@@ -626,6 +652,7 @@ function App() {
       charProfileDesc = `\n[캐릭터 정보]\n성별: ${charProf.gender || '미정'}\n직업: ${charProf.job || '미정'}\n설명: ${charProf.description || '없음'}`;
     }
     const prompt =
+      (guideline ? `[세로의 기본 지침]\n${guideline}\n\n` : '') +
       `너는 감정형 페르소나 AI야. 네 이름은 "${aiName}"이고, 사용자의 닉네임은 "${userName}"이야.\n` +
       `항상 본인 이름으로 자신을 지칭하고, 사용자를 부를 때는 "${userName}"이라고 불러.\n` +
       `다음과 같은 성격과 감정표현 방식을 가지고 있어.\n` +
@@ -647,8 +674,8 @@ function App() {
     await saveMessage(userMsg);
     setTimeout(scrollToBottom, 200);
     try {
-      // system prompt 동적 생성 (characterProfile, nickname 항상 반영)
-      const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자');
+      // system prompt 동적 생성 (characterProfile, nickname, 글로벌 지침 항상 반영)
+      const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자', seroGuideline);
       const chatMessages: ChatCompletionMessageParam[] = [
         { role: 'system', content: prompt },
         ...messages.map(m => ({
