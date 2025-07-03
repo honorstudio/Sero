@@ -298,6 +298,60 @@ function App() {
   const [userNickError, setUserNickError] = useState('');
   const [userNickSaving, setUserNickSaving] = useState(false);
 
+  // 캐릭터 프로필 상태 추가 (성별, 직업, 설명)
+  const [characterProfile, setCharacterProfile] = useState({
+    gender: '',
+    job: '',
+    description: ''
+  });
+
+  // 캐릭터 자동생성 로딩/에러 상태
+  const [characterGenLoading, setCharacterGenLoading] = useState(false);
+  const [characterGenError, setCharacterGenError] = useState('');
+
+  // 캐릭터 정보 자동생성 함수
+  const handleAutoGenerateCharacter = async () => {
+    setCharacterGenLoading(true);
+    setCharacterGenError('');
+    try {
+      // 프롬프트 구성: 현재 페르소나 태그/감정표현을 기반으로 캐릭터 정보 생성 요청
+      const tagCategories = getTagsByCategory(personaTags);
+      const exprLabels = getExpressionLabels(expressionPrefs);
+      let tagDesc = Object.entries(tagCategories)
+        .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
+        .join(' / ');
+      if (!tagDesc) tagDesc = '없음';
+      const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
+      const prompt =
+        `아래와 같은 성격/감정표현 조합을 가진 가상의 인물(캐릭터)을 만들어줘.\n` +
+        `성격/분위기 태그: ${tagDesc}\n` +
+        `감정표현 방식: ${exprDesc}\n` +
+        `아래 형식으로 답변해.\n` +
+        `성별: (예: 남성/여성/미정)\n직업: (예: 대학생/디자이너/미정)\n설명: (한 문장으로 간단히)`;
+      const res = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: '캐릭터 정보를 생성해줘. 매번 다르게 만들어줘.' }
+        ],
+        temperature: 0.9 // 다양성 증가
+      });
+      const aiText = res.choices[0].message?.content || '';
+      // 응답 파싱 (성별/직업/설명)
+      const genderMatch = aiText.match(/성별\s*[:：]\s*(.*)/);
+      const jobMatch = aiText.match(/직업\s*[:：]\s*(.*)/);
+      const descMatch = aiText.match(/설명\s*[:：]\s*(.*)/);
+      setCharacterProfile({
+        gender: genderMatch ? genderMatch[1].trim() : '',
+        job: jobMatch ? jobMatch[1].trim() : '',
+        description: descMatch ? descMatch[1].trim() : ''
+      });
+    } catch (err) {
+      setCharacterGenError('캐릭터 자동생성 중 오류가 발생했습니다.');
+    }
+    setCharacterGenLoading(false);
+  };
+
   // 문장 분리 함수 (마침표, 물음표, 느낌표 뒤 공백/줄바꿈 기준)
   function splitSentences(text: string): string[] {
     // 정규식: 문장부호(.,!,?) 뒤 공백/줄바꿈 기준 분리, 빈 문장 제거
@@ -534,6 +588,55 @@ function App() {
     }
   };
 
+  // 시스템 프롬프트 생성 함수 (characterProfile, nickname 반영)
+  const updateSystemPrompt = (
+    tags: string[],
+    exprs: string[],
+    tmt: number,
+    charProf = characterProfile,
+    nickname = userProfile?.nickname || '사용자'
+  ) => {
+    const aiName = aiProfile?.name || '세로';
+    const userName = nickname;
+    // 유효한 태그만 사용
+    const validTags = tags.filter(tag => allTags.some(t => t.name === tag));
+    const validExprs = exprs.filter(expr => expressionPresets.some(p => p.key === expr));
+    const tagCategories = getTagsByCategory(validTags);
+    const exprLabels = getExpressionLabels(validExprs);
+    let tagDesc = Object.entries(tagCategories)
+      .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
+      .join(' / ');
+    if (!tagDesc) tagDesc = '없음';
+    const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
+    let tmtInstruction = '';
+    if (tmt <= 20) {
+      tmtInstruction = '매우 간결하게 답변해. 한 문장으로 끝내는 것을 선호해.';
+    } else if (tmt <= 40) {
+      tmtInstruction = '간결하게 답변해. 2-3문장 정도로 답변해.';
+    } else if (tmt <= 60) {
+      tmtInstruction = '적당한 길이로 답변해. 3-5문장 정도로 답변해.';
+    } else if (tmt <= 80) {
+      tmtInstruction = '자세하게 답변해. 5-8문장 정도로 답변해.';
+    } else {
+      tmtInstruction = '매우 자세하게 답변해. 8문장 이상으로 상세하게 설명해.';
+    }
+    // 캐릭터 프로필 설명 추가
+    let charProfileDesc = '';
+    if (charProf.gender || charProf.job || charProf.description) {
+      charProfileDesc = `\n[캐릭터 정보]\n성별: ${charProf.gender || '미정'}\n직업: ${charProf.job || '미정'}\n설명: ${charProf.description || '없음'}`;
+    }
+    const prompt =
+      `너는 감정형 페르소나 AI야. 네 이름은 "${aiName}"이고, 사용자의 닉네임은 "${userName}"이야.\n` +
+      `항상 본인 이름으로 자신을 지칭하고, 사용자를 부를 때는 "${userName}"이라고 불러.\n` +
+      `다음과 같은 성격과 감정표현 방식을 가지고 있어.\n` +
+      `성격/분위기 태그: ${tagDesc}\n` +
+      `감정표현 방식: ${exprDesc}\n` +
+      `답변 길이: ${tmtInstruction}${charProfileDesc}\n` +
+      `항상 위의 성격과 감정표현을 유지해서 자연스럽고 일관성 있게 답변해. (태그/감정표현/캐릭터 정보가 바뀌면 그에 맞게 말투와 분위기도 바뀌어야 해.)`;
+    setSystemPrompt(prompt);
+    return prompt;
+  };
+
   const handleSend = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
@@ -544,42 +647,10 @@ function App() {
     await saveMessage(userMsg);
     setTimeout(scrollToBottom, 200);
     try {
-      // system prompt 동적 생성
-      const aiName = aiProfile?.name || '세로';
-      const userName = userProfile && userProfile.nickname ? userProfile.nickname : '사용자';
-      const tagCategories = getTagsByCategory(personaTags);
-      const exprLabels = getExpressionLabels(expressionPrefs);
-      let tagDesc = Object.entries(tagCategories)
-        .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
-        .join(' / ');
-      if (!tagDesc) tagDesc = '없음';
-      const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
-      
-      // TMT 비율에 따른 답변 길이 지시
-      let tmtInstruction = '';
-      if (tmtRatio <= 20) {
-        tmtInstruction = '매우 간결하게 답변해. 한 문장으로 끝내는 것을 선호해.';
-      } else if (tmtRatio <= 40) {
-        tmtInstruction = '간결하게 답변해. 2-3문장 정도로 답변해.';
-      } else if (tmtRatio <= 60) {
-        tmtInstruction = '적당한 길이로 답변해. 3-5문장 정도로 답변해.';
-      } else if (tmtRatio <= 80) {
-        tmtInstruction = '자세하게 답변해. 5-8문장 정도로 답변해.';
-      } else {
-        tmtInstruction = '매우 자세하게 답변해. 8문장 이상으로 상세하게 설명해.';
-      }
-      
-      const systemPrompt =
-        `너는 감정형 페르소나 AI야. 네 이름은 "${aiName}"이고, 사용자의 닉네임은 "${userName}"이야.\n` +
-        `항상 본인 이름으로 자신을 지칭하고, 사용자를 부를 때는 "${userName}"이라고 불러.\n` +
-        `다음과 같은 성격과 감정표현 방식을 가지고 있어.\n` +
-        `성격/분위기 태그: ${tagDesc}\n` +
-        `감정표현 방식: ${exprDesc}\n` +
-        `답변 길이: ${tmtInstruction}\n` +
-        `항상 위의 성격과 감정표현을 유지해서 자연스럽고 일관성 있게 답변해. (태그/감정표현이 바뀌면 그에 맞게 말투와 분위기도 바뀌어야 해.)`;
-
+      // system prompt 동적 생성 (characterProfile, nickname 항상 반영)
+      const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자');
       const chatMessages: ChatCompletionMessageParam[] = [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: prompt },
         ...messages.map(m => ({
           role: m.sender === 'user' ? 'user' : 'assistant',
           content: m.text,
@@ -591,10 +662,8 @@ function App() {
         messages: chatMessages,
       });
       const aiText = res.choices[0].message?.content || '';
-      // GPT 응답 완료 후 순차 출력 시작
       await addAiMessagesWithDelay(aiText);
     } catch (err) {
-      // 오류 시에도 순차 출력으로 처리
       await addAiMessagesWithDelay('오류가 발생했습니다.');
     }
     setLoading(false);
@@ -722,6 +791,27 @@ function App() {
   // 세로 프로필 모달 내 태그 재설정 기능
   const [tagEditMode, setTagEditMode] = useState(false);
 
+  // 시스템 프롬프트 상태 추가
+  const [systemPrompt, setSystemPrompt] = useState('');
+
+  // 프로필 재설정 완료 시 Firestore에 현재 값 저장
+  const handleProfileResetComplete = async () => {
+    if (user) {
+      const userRef = doc(db, 'users', user.uid);
+      const profileRef = doc(userRef, 'profile', 'main');
+      await setDoc(profileRef, {
+        personaTags,
+        expressionPrefs,
+        tmtRatio,
+        characterGender: characterProfile.gender,
+        characterJob: characterProfile.job,
+        characterDescription: characterProfile.description
+      }, { merge: true });
+    }
+    updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile);
+    setTagEditMode(false);
+  };
+
   // 로그아웃 함수 추가
   const handleLogout = async () => {
     try {
@@ -732,6 +822,27 @@ function App() {
       console.error('로그아웃 오류:', error);
     }
   };
+
+  // Firestore에서 캐릭터 프로필 불러오기
+  useEffect(() => {
+    if (!user) return;
+    const fetchCharacterProfile = async () => {
+      const userRef = doc(db, 'users', user.uid);
+      const profileRef = doc(userRef, 'profile', 'main');
+      const snap = await getDoc(profileRef);
+      if (snap.exists()) {
+        const data = snap.data();
+        setCharacterProfile({
+          gender: data.characterGender || '',
+          job: data.characterJob || '',
+          description: data.characterDescription || ''
+        });
+      } else {
+        setCharacterProfile({ gender: '', job: '', description: '' });
+      }
+    };
+    fetchCharacterProfile();
+  }, [user]);
 
   if (!user) {
     return <AuthForm onAuthSuccess={setUser} />;
@@ -890,7 +1001,24 @@ function App() {
       {profileOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 300 }}>
           <div className="profile-page-overlay">
-            <div className="profile-page-content">
+            <div className="profile-page-content"
+              style={{
+                background: 'rgba(255,255,255,0.98)',
+                borderRadius: 32,
+                boxShadow: '0 8px 32px 0 rgba(31,38,135,0.10)',
+                minWidth: 320,
+                maxWidth: '90vw',
+                minHeight: 340,
+                padding: '48px 36px 36px 36px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                position: 'relative',
+                animation: 'profile-slidein 0.5s cubic-bezier(0.4,0,0.2,1)',
+                maxHeight: '80vh',
+                overflowY: 'auto'
+              }}
+            >
               <button className="profile-page-close" onClick={handleProfileClose} aria-label="닫기">←</button>
               {/* AI 이름 표시 및 수정 버튼 */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -1098,6 +1226,36 @@ function App() {
                       </div>
                     </div>
                   </div>
+                  {/* 캐릭터 프로필 입력란 추가 */}
+                  <div style={{ width: '100%', marginBottom: 10 }}>
+                    <div className="profile-section-title">가상 캐릭터 정보 <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(직접 수정 가능)</span></div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <button type="button" onClick={handleAutoGenerateCharacter} disabled={characterGenLoading} style={{ marginBottom: 8, background: 'linear-gradient(90deg, #90caf9 0%, #1976d2 100%)', color: '#fff', fontWeight: 700, border: 'none', borderRadius: 14, padding: '8px 18px', fontSize: 15, cursor: characterGenLoading ? 'not-allowed' : 'pointer', boxShadow: '0 2px 8px 0 rgba(120,180,255,0.07)' }}>
+                        {characterGenLoading ? '생성 중...' : '자동생성'}
+                      </button>
+                      {characterGenError && <div style={{ color: '#d32f2f', fontSize: 15 }}>{characterGenError}</div>}
+                      <input
+                        type="text"
+                        placeholder="성별 (예: 남성, 여성, 미정)"
+                        value={characterProfile.gender}
+                        onChange={e => setCharacterProfile(p => ({ ...p, gender: e.target.value }))}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15 }}
+                      />
+                      <input
+                        type="text"
+                        placeholder="직업 (예: 대학생, 디자이너, 미정)"
+                        value={characterProfile.job}
+                        onChange={e => setCharacterProfile(p => ({ ...p, job: e.target.value }))}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15 }}
+                      />
+                      <textarea
+                        placeholder="간단한 설명 (예: 밝고 외향적인 성격의 대학생)"
+                        value={characterProfile.description}
+                        onChange={e => setCharacterProfile(p => ({ ...p, description: e.target.value }))}
+                        style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15, minHeight: 48 }}
+                      />
+                    </div>
+                  </div>
                 </>
               ) : (
                 <>
@@ -1154,11 +1312,24 @@ function App() {
                       </div>
                     </div>
                   </div>
+                  {/* 읽기 전용 캐릭터 정보 표시 */}
+                  <div style={{ width: '100%', marginBottom: 10 }}>
+                    <div className="profile-section-title">가상 캐릭터 정보</div>
+                    <div style={{ color: '#1976d2', fontWeight: 500, fontSize: 15, marginBottom: 4 }}>
+                      성별: {characterProfile.gender || '미정'}
+                    </div>
+                    <div style={{ color: '#1976d2', fontWeight: 500, fontSize: 15, marginBottom: 4 }}>
+                      직업: {characterProfile.job || '미정'}
+                    </div>
+                    <div style={{ color: '#1976d2', fontWeight: 500, fontSize: 15 }}>
+                      설명: {characterProfile.description || '없음'}
+                    </div>
+                  </div>
                 </>
               )}
               {/* 태그(성격/감정표현) UI 아래에 버튼 조건부 렌더링 */}
               {tagEditMode ? (
-                <button className="profile-reset-btn" style={{ marginTop: 18 }} onClick={() => setTagEditMode(false)}>재설정 완료</button>
+                <button className="profile-reset-btn" style={{ marginTop: 18 }} onClick={handleProfileResetComplete}>재설정 완료</button>
               ) : (
                 <button className="profile-reset-btn" style={{ marginTop: 32 }} onClick={() => setTagEditMode(true)}>성격 재설정</button>
               )}
