@@ -85,11 +85,44 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fastTarget = useRef(1);
   const fastValue = useRef(1);
-  const colorLerpValue = useRef(0); // 색상 변화도 부드럽게
-  const [_, setRerender] = React.useState(0); // 강제 리렌더용
+  const colorLerpValue = useRef(0);
+  const [_, setRerender] = React.useState(0);
   const [glow, setGlow] = React.useState(false);
   const [hovered, setHovered] = React.useState(false);
   const [outerGlow, setOuterGlow] = React.useState(false);
+
+  // 활성화 상태에 따라 파티클 수 결정
+  const activeParticleCount = hovered || glow ? Math.floor(particleCount / 2) : particleCount;
+  // 파티클 배열 useState로 관리
+  const [particles, setParticles] = React.useState<any[]>([]);
+
+  // 캔버스 관련 값 useRef로 관리
+  const cxRef = useRef(0);
+  const cyRef = useRef(0);
+  const rRef = useRef(0);
+
+  useEffect(() => {
+    const cx = size / 2;
+    const cy = size / 2;
+    const r = size / 2 - 1;
+    cxRef.current = cx;
+    cyRef.current = cy;
+    rRef.current = r;
+    setParticles(Array.from({ length: activeParticleCount }).map((_, i) => {
+      const theta = (2 * Math.PI * i) / activeParticleCount;
+      // phase는 0~2PI 사이로만 약간 랜덤하게
+      const phase = Math.random() * Math.PI * 2;
+      return {
+        baseX: cx,
+        baseY: cy,
+        angle: theta,
+        baseRadius: r,
+        targetRadius: r,
+        currentRadius: r,
+        phase,
+      };
+    }));
+  }, [activeParticleCount, size]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -99,32 +132,8 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
     const dpr = window.devicePixelRatio || 1;
     canvas.width = size * dpr;
     canvas.height = size * dpr;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.scale(dpr, dpr);
-    const cx = size / 2;
-    const cy = size / 2;
-    const r = size / 2 - 1;
-    // 파티클 상태: baseRadius(원래), targetRadius(목표), currentRadius(실제)
-    // particleCount는 상태로 관리
-    const [activeParticleCount, setActiveParticleCount] = React.useState(particleCount);
-    useEffect(() => {
-      setActiveParticleCount((hovered || glow) ? Math.floor(particleCount / 2) : particleCount);
-    }, [hovered, glow, particleCount]);
-    const particles = React.useMemo(() => Array.from({ length: activeParticleCount }).map((_, i) => {
-      const theta = (2 * Math.PI * i) / activeParticleCount;
-      const baseRadius = r * Math.sqrt(Math.random());
-      return {
-        baseX: cx,
-        baseY: cy,
-        angle: theta,
-        baseRadius,
-        targetRadius: baseRadius,
-        currentRadius: baseRadius,
-        freq: 1.6 + Math.random() * 2.4,
-        amp: 2 + Math.random() * 2,
-        phase: Math.random() * Math.PI * 2,
-        speed: 1.0 + Math.random() * 2.4,
-      };
-    }), [activeParticleCount, cx, cy, r]);
     let running = true;
     function draw(t: number) {
       if (!ctx) return;
@@ -135,32 +144,33 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
       ctx.clearRect(0, 0, size, size);
       ctx.save();
       ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+      ctx.arc(cxRef.current, cyRef.current, rRef.current, 0, 2 * Math.PI);
       ctx.clip();
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
         let px, py;
-        let particleRadius = (hovered || glow) ? 2.5 : 1;
+        let particleRadius = 1;
         if (hovered || glow) {
-          // 활성화: 원형 테두리로 더 빠르게 모임 + 회전
-          p.currentRadius += (r - p.currentRadius) * 0.25; // 더 빠르게
-          // 각도를 시간에 따라 회전
-          const theta = p.angle + t * 0.0007;
-          px = cx + p.currentRadius * Math.cos(theta);
-          py = cy + p.currentRadius * Math.sin(theta);
+          // 원형 테두리에 정확히 분포, 중앙 쪽으로만 살짝 튀는 효과
+          const drumFreq = 0.004;
+          const drumAmp = 4; // 튀는 세기 줄임
+          const drum = Math.abs(Math.sin(t * drumFreq + p.phase)) * drumAmp;
+          const targetRadius = rRef.current - drum;
+          p.currentRadius += (targetRadius - p.currentRadius) * 0.25;
+          px = cxRef.current + p.currentRadius * Math.cos(p.angle);
+          py = cyRef.current + p.currentRadius * Math.sin(p.angle);
         } else {
-          // 기본상태: 파도/물결(반원 곡선) + 노이즈 + 테두리 반사
           const θ = p.angle;
-          const baseRadius = r * 0.7;
+          const baseRadius = rRef.current * 0.7;
           const wave = Math.sin(t * 0.001 + θ * 3 + p.phase) * 12;
           let radius = baseRadius + wave;
-          if (radius > r - 2) {
+          if (radius > rRef.current - 2) {
             p.phase += Math.random() * 0.5;
-            radius = r - 2 - Math.abs(wave) * 0.5;
+            radius = rRef.current - 2 - Math.abs(wave) * 0.5;
           }
           p.currentRadius += (radius - p.currentRadius) * 0.09;
-          px = cx + p.currentRadius * Math.cos(θ);
-          py = cy + p.currentRadius * Math.sin(θ);
+          px = cxRef.current + p.currentRadius * Math.cos(θ);
+          py = cyRef.current + p.currentRadius * Math.sin(θ);
         }
         const colorLerp = colorLerpValue.current;
         const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
@@ -184,16 +194,16 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
       requestAnimationFrame(animate);
     }
     animate(performance.now());
-    // hover/typing 상태에 따라 targetRadius 변경
-    const updateTarget = () => {
-      for (let i = 0; i < particles.length; i++) {
-        particles[i].targetRadius = (hovered || glow) ? r : particles[i].baseRadius;
-      }
-    };
-    updateTarget();
     return () => { running = false; };
-    // eslint-disable-next-line
-  }, [size, particleCount, hovered, glow]);
+  }, [size, particles, hovered, glow]);
+
+  // hover/typing 상태에 따라 targetRadius 변경
+  const updateTarget = () => {
+    for (let i = 0; i < particles.length; i++) {
+      particles[i].targetRadius = (hovered || glow) ? rRef.current : particles[i].baseRadius;
+    }
+  };
+  updateTarget();
 
   // 마우스 이벤트: 파티클 흩어짐/복귀, glow 효과
   const handleEnter = () => {
