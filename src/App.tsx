@@ -104,8 +104,13 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
     const cy = size / 2;
     const r = size / 2 - 1;
     // 파티클 상태: baseRadius(원래), targetRadius(목표), currentRadius(실제)
-    const particles = Array.from({ length: particleCount }).map((_, i) => {
-      const theta = Math.random() * 3 * Math.PI;
+    // particleCount는 상태로 관리
+    const [activeParticleCount, setActiveParticleCount] = React.useState(particleCount);
+    useEffect(() => {
+      setActiveParticleCount((hovered || glow) ? Math.floor(particleCount / 2) : particleCount);
+    }, [hovered, glow, particleCount]);
+    const particles = React.useMemo(() => Array.from({ length: activeParticleCount }).map((_, i) => {
+      const theta = (2 * Math.PI * i) / activeParticleCount;
       const baseRadius = r * Math.sqrt(Math.random());
       return {
         baseX: cx,
@@ -117,52 +122,47 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
         freq: 1.6 + Math.random() * 2.4,
         amp: 2 + Math.random() * 2,
         phase: Math.random() * Math.PI * 2,
-        speed: 1.0 + Math.random() * 1.4,
+        speed: 1.0 + Math.random() * 2.4,
       };
-    });
+    }), [activeParticleCount, cx, cy, r]);
     let running = true;
     function draw(t: number) {
       if (!ctx) return;
-      // fastValue → fastTarget으로 lerp
       fastValue.current += (fastTarget.current - fastValue.current) * 0.05;
       fastValue.current = Math.max(0.1, Math.min(1, fastValue.current));
-      // colorLerpValue도 hovered/glow에 따라 부드럽게 lerp
       const colorTarget = hovered || glow ? 1 : 0;
       colorLerpValue.current += (colorTarget - colorLerpValue.current) * 0.08;
       ctx.clearRect(0, 0, size, size);
-      // 원형 마스크
       ctx.save();
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, 2 * Math.PI);
       ctx.clip();
-      // 파티클 그리기
       for (let i = 0; i < particles.length; i++) {
         const p = particles[i];
-        const θ = p.angle;
         let px, py;
         let particleRadius = (hovered || glow) ? 2.5 : 1;
         if (hovered || glow) {
-          // 활성화: 원형 테두리로 모임
-          p.currentRadius += (r - p.currentRadius) * 0.12;
-          px = cx + p.currentRadius * Math.cos(θ);
-          py = cy + p.currentRadius * Math.sin(θ);
+          // 활성화: 원형 테두리로 더 빠르게 모임 + 회전
+          p.currentRadius += (r - p.currentRadius) * 0.25; // 더 빠르게
+          // 각도를 시간에 따라 회전
+          const theta = p.angle + t * 0.0007;
+          px = cx + p.currentRadius * Math.cos(theta);
+          py = cy + p.currentRadius * Math.sin(theta);
         } else {
           // 기본상태: 파도/물결(반원 곡선) + 노이즈 + 테두리 반사
+          const θ = p.angle;
           const baseRadius = r * 0.7;
           const wave = Math.sin(t * 0.001 + θ * 3 + p.phase) * 12;
           let radius = baseRadius + wave;
-          // 테두리 반사/퍼짐
           if (radius > r - 2) {
-            p.phase += Math.random() * 0.5; // 위상 변화로 물결 이어짐
+            p.phase += Math.random() * 0.5;
             radius = r - 2 - Math.abs(wave) * 0.5;
           }
-          // 부드럽게 이동
           p.currentRadius += (radius - p.currentRadius) * 0.09;
           px = cx + p.currentRadius * Math.cos(θ);
           py = cy + p.currentRadius * Math.sin(θ);
         }
-        // 활성화/비활성화에 따라 색상 자연스럽게 변화
-        const colorLerp = colorLerpValue.current; // 1: 진한, 0: 밝은
+        const colorLerp = colorLerpValue.current;
         const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
         const rC = Math.round(lerp(144, 25, colorLerp));
         const gC = Math.round(lerp(202, 118, colorLerp));
