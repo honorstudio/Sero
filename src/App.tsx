@@ -613,7 +613,66 @@ function App() {
     fetchGuideline();
   }, []);
 
-  // 시스템 프롬프트 생성 함수 (characterProfile, nickname, 글로벌 지침 반영)
+  // 사용자/세로 관계도 상태
+  const [userRelations, setUserRelations] = useState<any>(null);
+  const [seroRelations, setSeroRelations] = useState<any>(null);
+  const [relationsLoading, setRelationsLoading] = useState(true);
+
+  // Firestore에서 관계도 불러오기
+  useEffect(() => {
+    if (!user) return;
+    setRelationsLoading(true);
+    const fetchRelations = async () => {
+      try {
+        const userRef = doc(db, 'users', user.uid, 'relations', 'user');
+        const seroRef = doc(db, 'users', user.uid, 'relations', 'sero');
+        const userSnap = await getDoc(userRef);
+        const seroSnap = await getDoc(seroRef);
+        setUserRelations(userSnap.exists() ? userSnap.data() : null);
+        setSeroRelations(seroSnap.exists() ? seroSnap.data() : null);
+      } catch (e) {
+        setUserRelations(null);
+        setSeroRelations(null);
+      }
+      setRelationsLoading(false);
+    };
+    fetchRelations();
+  }, [user]);
+
+  // 관계도 요약 텍스트 생성 함수
+  function getRelationsSummary() {
+    let summary = '';
+    if (userRelations && userRelations.relations && Array.isArray(userRelations.relations)) {
+      summary += '[사용자 관계도]\n';
+      userRelations.relations.forEach((rel: any) => {
+        summary += `${rel.name}(${rel.type}): ${rel.desc || ''}`;
+        if (rel.episodes && rel.episodes.length > 0) {
+          summary += `, 에피소드: ${rel.episodes.join('; ')}`;
+        }
+        summary += '\n';
+      });
+    }
+    if (seroRelations && (seroRelations.characters || seroRelations.places)) {
+      summary += '[세로의 가상 관계도]\n';
+      if (seroRelations.characters && Array.isArray(seroRelations.characters)) {
+        seroRelations.characters.forEach((char: any) => {
+          summary += `${char.name}(${char.relation}): ${char.desc || ''}`;
+          if (char.episodes && char.episodes.length > 0) {
+            summary += `, 에피소드: ${char.episodes.join('; ')}`;
+          }
+          summary += '\n';
+        });
+      }
+      if (seroRelations.places && Array.isArray(seroRelations.places)) {
+        seroRelations.places.forEach((place: any) => {
+          summary += `공간: ${place.name} - ${place.desc || ''}\n`;
+        });
+      }
+    }
+    return summary.trim();
+  }
+
+  // 시스템 프롬프트 생성 함수 (관계도 요약 포함)
   const updateSystemPrompt = (
     tags: string[],
     exprs: string[],
@@ -651,17 +710,157 @@ function App() {
     if (charProf.gender || charProf.job || charProf.description) {
       charProfileDesc = `\n[캐릭터 정보]\n성별: ${charProf.gender || '미정'}\n직업: ${charProf.job || '미정'}\n설명: ${charProf.description || '없음'}`;
     }
+    // 관계도 요약 추가
+    const relationsSummary = getRelationsSummary();
     const prompt =
       (guideline ? `[세로의 기본 지침]\n${guideline}\n\n` : '') +
+      (relationsSummary ? relationsSummary + '\n\n' : '') +
       `너는 감정형 페르소나 AI야. 네 이름은 "${aiName}"이고, 사용자의 닉네임은 "${userName}"이야.\n` +
       `항상 본인 이름으로 자신을 지칭하고, 사용자를 부를 때는 "${userName}"이라고 불러.\n` +
       `다음과 같은 성격과 감정표현 방식을 가지고 있어.\n` +
       `성격/분위기 태그: ${tagDesc}\n` +
       `감정표현 방식: ${exprDesc}\n` +
       `답변 길이: ${tmtInstruction}${charProfileDesc}\n` +
-      `항상 위의 성격과 감정표현을 유지해서 자연스럽고 일관성 있게 답변해. (태그/감정표현/캐릭터 정보가 바뀌면 그에 맞게 말투와 분위기도 바뀌어야 해.)`;
+      `항상 위의 성격과 감정표현을 유지해서 자연스럽고 일관성 있게 답변해. (태그/감정표현/캐릭터 정보/관계도가 바뀌면 그에 맞게 말투와 분위기도 바뀌어야 해.)`;
     setSystemPrompt(prompt);
     return prompt;
+  };
+
+  // 대화 카운트 상태
+  const [messageExtractCount, setMessageExtractCount] = useState(0);
+  const [messageExtractThreshold, setMessageExtractThreshold] = useState(10); // 기본값 10
+
+  // Firestore에서 대화 카운트와 threshold 불러오기
+  useEffect(() => {
+    if (!user) return;
+    const fetchCount = async () => {
+      try {
+        const metaRef = doc(db, 'users', user.uid, 'meta', 'main');
+        const snap = await getDoc(metaRef);
+        if (snap.exists()) {
+          const data = snap.data();
+          setMessageExtractCount(data.messageExtractCount || 0);
+          setMessageExtractThreshold(data.messageExtractThreshold || 10);
+        } else {
+          setMessageExtractCount(0);
+          setMessageExtractThreshold(10);
+        }
+      } catch (e) {
+        setMessageExtractCount(0);
+        setMessageExtractThreshold(10);
+      }
+    };
+    fetchCount();
+  }, [user]);
+
+  // 대화 카운트 증가 및 threshold마다 관계/자아 추출
+  const incrementMessageExtractCount = async () => {
+    if (!user) return;
+    const newCount = messageExtractCount + 1;
+    setMessageExtractCount(newCount);
+    const metaRef = doc(db, 'users', user.uid, 'meta', 'main');
+    await setDoc(metaRef, { messageExtractCount: newCount }, { merge: true });
+    if (newCount >= messageExtractThreshold) {
+      // Firestore에서 최근 threshold개 메시지 불러오기
+      const messagesRef = collection(db, 'chats', user.uid, 'messages');
+      const q = query(messagesRef, orderBy('createdAt', 'desc'), limit(messageExtractThreshold));
+      const snapshot = await getDocs(q);
+      const recentMessages = snapshot.docs.map(doc => doc.data()).reverse();
+      // GPT 프롬프트 구성
+      const chatText = recentMessages.map((m, i) => `${i + 1}. ${m.sender === 'user' ? '사용자' : '세로'}: ${m.text}`).join('\n');
+      const prompt = `아래는 최근 대화 내용입니다.\n\n[대화]\n${chatText}\n\n[요청]\n- 사용자와 세로의 대화에서 등장한 인물, 관계, 사건, 공간을 각각 분류해서 JSON으로 정리해줘.\n- 세로가 말한 자기서사/세계관(자아 정보)은 별도로 정리해줘.\n\n[출력 예시]\n{\n  "userRelations": [\n    { "name": "엄마", "type": "가족", "desc": "밥을 먹음", "episodes": ["밥 먹음"] }\n  ],\n  "seroRelations": [\n    { "name": "로라", "relation": "친구", "desc": "항상 도와줌", "episodes": ["도와줌"] }\n  ],\n  "seroIdentity": {\n    "places": [ { "name": "별빛마을", "desc": "세로가 자란 곳" } ],\n    "events": [],\n    "selfNarrative": ["나는 별빛마을에서 자랐어"]\n  }\n}`;
+      try {
+        const res = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: [
+            { role: 'system', content: prompt },
+            { role: 'user', content: 'JSON만 정확하게 출력해줘.' }
+          ],
+          temperature: 0.2
+        });
+        const aiText = res.choices[0].message?.content || '';
+        // JSON 파싱
+        let extracted;
+        try {
+          extracted = JSON.parse(aiText.replace(/```json|```/g, '').trim());
+        } catch (e) {
+          // 파싱 실패 시 무시
+          extracted = null;
+        }
+        if (extracted) {
+          // 1. 사용자 관계도
+          if (Array.isArray(extracted.userRelations) && extracted.userRelations.length > 0) {
+            const userRef = doc(db, 'users', user.uid, 'relations', 'user');
+            const userSnap = await getDoc(userRef);
+            let prev = userSnap.exists() ? userSnap.data().relations || [] : [];
+            // 기존 인물과 이름/타입이 같으면 episodes만 append, 없으면 새로 추가
+            extracted.userRelations.forEach((rel: any) => {
+              const idx = prev.findIndex((r: any) => r.name === rel.name && r.type === rel.type);
+              if (idx >= 0) {
+                // 에피소드 누적
+                prev[idx].episodes = Array.isArray(prev[idx].episodes) ? prev[idx].episodes : [];
+                rel.episodes = Array.isArray(rel.episodes) ? rel.episodes : [];
+                prev[idx].episodes = Array.from(new Set([...prev[idx].episodes, ...rel.episodes]));
+                if (rel.desc) prev[idx].desc = rel.desc;
+              } else {
+                prev.push(rel);
+              }
+            });
+            await setDoc(userRef, { relations: prev }, { merge: true });
+          }
+          // 2. 세로 관계도
+          if (Array.isArray(extracted.seroRelations) && extracted.seroRelations.length > 0) {
+            const seroRef = doc(db, 'users', user.uid, 'relations', 'sero');
+            const seroSnap = await getDoc(seroRef);
+            let prev = seroSnap.exists() ? seroSnap.data().characters || [] : [];
+            extracted.seroRelations.forEach((rel: any) => {
+              const idx = prev.findIndex((r: any) => r.name === rel.name && r.relation === rel.relation);
+              if (idx >= 0) {
+                prev[idx].episodes = Array.isArray(prev[idx].episodes) ? prev[idx].episodes : [];
+                rel.episodes = Array.isArray(rel.episodes) ? rel.episodes : [];
+                prev[idx].episodes = Array.from(new Set([...prev[idx].episodes, ...rel.episodes]));
+                if (rel.desc) prev[idx].desc = rel.desc;
+              } else {
+                prev.push(rel);
+              }
+            });
+            await setDoc(seroRef, { characters: prev }, { merge: true });
+          }
+          // 3. 세로 자아(세계관)
+          if (extracted.seroIdentity) {
+            const identityRef = doc(db, 'users', user.uid, 'self', 'identity');
+            const identitySnap = await getDoc(identityRef);
+            let prevPlaces = identitySnap.exists() && Array.isArray(identitySnap.data().places) ? identitySnap.data().places : [];
+            let prevEvents = identitySnap.exists() && Array.isArray(identitySnap.data().events) ? identitySnap.data().events : [];
+            let prevNarr = identitySnap.exists() && Array.isArray(identitySnap.data().selfNarrative) ? identitySnap.data().selfNarrative : [];
+            // places
+            if (Array.isArray(extracted.seroIdentity.places)) {
+              extracted.seroIdentity.places.forEach((place: any) => {
+                if (!prevPlaces.find((p: any) => p.name === place.name)) prevPlaces.push(place);
+              });
+            }
+            // events
+            if (Array.isArray(extracted.seroIdentity.events)) {
+              extracted.seroIdentity.events.forEach((ev: any) => {
+                if (!prevEvents.find((e: any) => e.name === ev.name)) prevEvents.push(ev);
+              });
+            }
+            // selfNarrative
+            if (Array.isArray(extracted.seroIdentity.selfNarrative)) {
+              extracted.seroIdentity.selfNarrative.forEach((narr: string) => {
+                if (!prevNarr.includes(narr)) prevNarr.push(narr);
+              });
+            }
+            await setDoc(identityRef, { places: prevPlaces, events: prevEvents, selfNarrative: prevNarr }, { merge: true });
+          }
+        }
+      } catch (err) {
+        // GPT 호출 실패 시 무시
+      }
+      // 카운트 0으로 초기화
+      setMessageExtractCount(0);
+      await setDoc(metaRef, { messageExtractCount: 0 }, { merge: true });
+    }
   };
 
   const handleSend = async (e: FormEvent) => {
@@ -674,7 +873,7 @@ function App() {
     await saveMessage(userMsg);
     setTimeout(scrollToBottom, 200);
     try {
-      // system prompt 동적 생성 (characterProfile, nickname, 글로벌 지침 항상 반영)
+      // system prompt 동적 생성 (characterProfile, nickname, 글로벌 지침, 관계도 항상 반영)
       const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자', seroGuideline);
       const chatMessages: ChatCompletionMessageParam[] = [
         { role: 'system', content: prompt },
@@ -694,6 +893,8 @@ function App() {
       await addAiMessagesWithDelay('오류가 발생했습니다.');
     }
     setLoading(false);
+    // 대화 카운트 증가 및 threshold마다 관계/자아 추출
+    await incrementMessageExtractCount();
   };
 
   React.useEffect(() => {
