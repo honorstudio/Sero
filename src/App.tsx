@@ -310,6 +310,7 @@ function App() {
   const [lastLoadedDoc, setLastLoadedDoc] = useState<any>(null);
   const chatListRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef<number | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // TMT(Too Much Talker) 비율 상태 추가
   const [tmtRatio, setTmtRatio] = useState<number>(50); // 0-100, 기본값 50
@@ -1147,6 +1148,19 @@ function App() {
     initRelations();
   }, [user]);
 
+  // textarea 자동 높이 조절
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      const minHeight = 44;
+      if (!input) {
+        textareaRef.current.style.height = minHeight + 'px';
+      } else {
+        textareaRef.current.style.height = Math.max(textareaRef.current.scrollHeight, minHeight) + 'px';
+      }
+    }
+  }, [input]);
+
   if (!user) {
     return <AuthForm onAuthSuccess={setUser} />;
   }
@@ -1266,7 +1280,7 @@ function App() {
                 {msg.sender === 'ai' && (
                   <div style={{ position: 'absolute', left: 12, top: 6, fontSize: 13, color: '#1976d2', fontWeight: 700, letterSpacing: 0.2 }}>{aiProfile?.name || '세로'}</div>
                 )}
-                <div className="chat-message-content">{msg.text}</div>
+                <div className="chat-message-content" style={{ whiteSpace: 'pre-line' }}>{msg.text}</div>
                 <div className="chat-message-time">{timeStr}</div>
               </div>
             );
@@ -1282,20 +1296,52 @@ function App() {
           <div ref={messagesEndRef} />
         </div>
         {/* 채팅 입력창 */}
-        <form className="chat-input-area" onSubmit={handleSend} style={{ background: 'rgba(255,255,255,0.35)', borderRadius: '0 0 32px 32px' }}>
-          <input
+        <form className="chat-input-area" onSubmit={handleSend} style={{ background: 'rgba(255,255,255,0.18)', borderRadius: '0 0 32px 32px' }}>
+          <button
+            type="button"
+            className="plus-btn"
+            aria-label="더보기"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: '50%',
+              border: 'none',
+              background: 'rgba(255,255,255,0.35)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginRight: 8,
+              fontSize: 24,
+              color: '#222',
+              fontWeight: 400,
+              boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)',
+              cursor: 'pointer',
+              transition: 'background 0.2s, color 0.2s',
+            }}
+            tabIndex={-1}
+          >
+            <span style={{fontWeight: 400, fontSize: 24, lineHeight: 1, color: '#222'}}>+</span>
+          </button>
+          <textarea
+            ref={textareaRef}
             className="chat-input"
-            type="text"
             value={input}
             onChange={e => setInput(e.target.value)}
             placeholder="메시지를 입력하세요..."
             disabled={loading}
             maxLength={1000}
             autoFocus
+            rows={1}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault(); // 전송 안 함, 줄바꿈도 안 됨
+              }
+            }}
+            style={{ resize: 'none', overflow: 'hidden', minHeight: 44 }}
           />
-          <button className="send-btn" type="submit" disabled={loading || !input.trim()} aria-label="전송">
-            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M4 24L24 14L4 4V11L17 14L4 17V24Z" fill="#1976d2"/>
+          <button className={`send-btn${input.trim() ? ' active' : ''}`} type="submit" disabled={loading || !input.trim()} aria-label="전송">
+            <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M7 13h12M15 9l4 4-4 4" stroke="#222" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
         </form>
