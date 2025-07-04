@@ -3,10 +3,10 @@ import { auth } from './firebase';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth';
 
 interface AuthFormProps {
-  onAuthSuccess: (user: any) => void;
+  // onAuthSuccess는 더 이상 필요하지 않음 (onAuthStateChanged 사용)
 }
 
-const AuthForm: React.FC<AuthFormProps> = ({ onAuthSuccess }) => {
+const AuthForm: React.FC<AuthFormProps> = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,7 +40,7 @@ const AuthForm: React.FC<AuthFormProps> = ({ onAuthSuccess }) => {
       } else {
         userCredential = await createUserWithEmailAndPassword(auth, email, password);
       }
-      onAuthSuccess(userCredential.user);
+      // onAuthStateChanged가 자동으로 user 상태를 업데이트함
     } catch (err: any) {
       if (err.code === 'auth/email-already-in-use') {
         setError('이미 가입된 이메일입니다.');

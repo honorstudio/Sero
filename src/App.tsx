@@ -3,14 +3,27 @@ import './App.css';
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat';
 import { db, auth } from './firebase';
-import { collection, addDoc, serverTimestamp, query, orderBy, getDocs, doc, getDoc, setDoc, onSnapshot, updateDoc, limit, startAfter } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, orderBy, getDocs, doc, getDoc, setDoc, onSnapshot, updateDoc, limit, startAfter, where } from 'firebase/firestore';
 import AuthForm from './AuthForm';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 
 interface Message {
   sender: 'user' | 'ai';
   text: string;
   createdAt?: any; // Firestore Timestamp 또는 Date
+}
+
+interface Persona {
+  id: string;
+  name: string;
+  personaTags: string[];
+  expressionPrefs: string[];
+  tmtRatio: number;
+  characterGender: string;
+  characterJob: string;
+  characterDescription: string;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 const openai = new OpenAI({
@@ -293,10 +306,12 @@ const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ s
 };
 
 function App() {
+  // 1. 모든 useState, useRef, useEffect 등 Hook 선언 (조건문/return문보다 위)
+  const [authInitializing, setAuthInitializing] = useState(true);
+  const [user, setUser] = useState<any>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [user, setUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<{ nickname: string, photoURL?: string } | null>(null);
   const [aiProfile, setAiProfile] = useState<{ name: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -311,862 +326,452 @@ function App() {
   const chatListRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // TMT(Too Much Talker) 비율 상태 추가
-  const [tmtRatio, setTmtRatio] = useState<number>(50); // 0-100, 기본값 50
-
-  // 닉네임 수정 관련 상태 추가
+  const [personas, setPersonas] = useState<Persona[]>([]);
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
+  const [tmtRatio, setTmtRatio] = useState<number>(50);
   const [userNickInput, setUserNickInput] = useState(userProfile?.nickname || '');
   const [userNickEdit, setUserNickEdit] = useState(false);
   const [userNickError, setUserNickError] = useState('');
   const [userNickSaving, setUserNickSaving] = useState(false);
-
-  // 캐릭터 프로필 상태 추가 (성별, 직업, 설명)
-  const [characterProfile, setCharacterProfile] = useState({
-    gender: '',
-    job: '',
-    description: ''
-  });
-
-  // 캐릭터 자동생성 로딩/에러 상태
+  const [characterProfile, setCharacterProfile] = useState({ gender: '', job: '', description: '' });
   const [characterGenLoading, setCharacterGenLoading] = useState(false);
   const [characterGenError, setCharacterGenError] = useState('');
-
-  // 캐릭터 정보 자동생성 함수
-  const handleAutoGenerateCharacter = async () => {
-    setCharacterGenLoading(true);
-    setCharacterGenError('');
-    try {
-      // 프롬프트 구성: 현재 페르소나 태그/감정표현을 기반으로 캐릭터 정보 생성 요청
-      const tagCategories = getTagsByCategory(personaTags);
-      const exprLabels = getExpressionLabels(expressionPrefs);
-      let tagDesc = Object.entries(tagCategories)
-        .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
-        .join(' / ');
-      if (!tagDesc) tagDesc = '없음';
-      const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
-      const prompt =
-        `아래와 같은 성격/감정표현 조합을 가진 가상의 인물(캐릭터)을 만들어줘.\n` +
-        `성격/분위기 태그: ${tagDesc}\n` +
-        `감정표현 방식: ${exprDesc}\n` +
-        `아래 형식으로 답변해.\n` +
-        `성별: (예: 남성/여성/미정)\n직업: (예: 대학생/디자이너/미정)\n설명: (한 문장으로 간단히)`;
-      const res = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: prompt },
-          { role: 'user', content: '캐릭터 정보를 생성해줘. 매번 다르게 만들어줘.' }
-        ],
-        temperature: 0.9 // 다양성 증가
-      });
-      const aiText = res.choices[0].message?.content || '';
-      // 응답 파싱 (성별/직업/설명)
-      const genderMatch = aiText.match(/성별\s*[:：]\s*(.*)/);
-      const jobMatch = aiText.match(/직업\s*[:：]\s*(.*)/);
-      const descMatch = aiText.match(/설명\s*[:：]\s*(.*)/);
-      setCharacterProfile({
-        gender: genderMatch ? genderMatch[1].trim() : '',
-        job: jobMatch ? jobMatch[1].trim() : '',
-        description: descMatch ? descMatch[1].trim() : ''
-      });
-    } catch (err) {
-      setCharacterGenError('캐릭터 자동생성 중 오류가 발생했습니다.');
-    }
-    setCharacterGenLoading(false);
-  };
-
-  // 문장 분리 함수 (마침표, 물음표, 느낌표 뒤 공백/줄바꿈 기준)
-  function splitSentences(text: string): string[] {
-    // 정규식: 문장부호(.,!,?) 뒤 공백/줄바꿈 기준 분리, 빈 문장 제거
-    return text
-      .split(/(?<=[.!?])[\s\n]+/)
-      .map(s => s.trim())
-      .filter(Boolean);
-  }
-
-  // AI 메시지 여러 문장 순차 출력 (80ms * 글자수 딜레이)
-  async function addAiMessagesWithDelay(text: string) {
-    const sentences = splitSentences(text);
-    setAiTyping(true);
-    if (typeof window !== 'undefined' && (window as any).__setParticleFast) {
-      (window as any).__setParticleFast(true);
-    }
-    for (let i = 0; i < sentences.length; i++) {
-      const sentence = sentences[i];
-      await new Promise(res => setTimeout(res, Math.max(sentence.length * 80, 300)));
-      setMessages(prev => [...prev, { sender: 'ai', text: sentence, createdAt: new Date() }]);
-      if (user) {
-        await addDoc(
-          collection(db, 'chats', user.uid, 'messages'),
-          {
-            sender: 'ai',
-            text: sentence,
-            createdAt: serverTimestamp(),
-          }
-        );
-      }
-    }
-    setAiTyping(false);
-    if (typeof window !== 'undefined' && (window as any).__setParticleFast) {
-      (window as any).__setParticleFast(false);
-    }
-  }
-
-  // saveMessage 함수도 AI일 때 분리 적용
-  const saveMessage = async (msg: Message) => {
-    if (!user) return;
-    try {
-      if (msg.sender === 'ai') {
-        // 여러 문장 분리 및 딜레이 출력
-        await addAiMessagesWithDelay(msg.text);
-      } else {
-        // 사용자 메시지는 기존대로
-        await addDoc(
-          collection(db, 'chats', user.uid, 'messages'),
-          {
-            sender: msg.sender,
-            text: msg.text,
-            createdAt: serverTimestamp(),
-          }
-        );
-      }
-    } catch (e) {
-      console.error('DB 저장 오류:', e);
-    }
-  };
-
-  // 채팅창 스크롤 최하단 이동 함수
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-  };
-
-  // 페르소나 설정 진입/종료 시 스크롤 위치 기억 및 복원
-  const handleProfileOpen = () => {
-    setUserProfileOpen(false); // 사용자 프로필 닫기
-    if (chatListRef.current) {
-      lastScrollTop.current = chatListRef.current.scrollTop;
-    }
-    setProfileOpen(true);
-  };
-
-  const handleProfileClose = () => {
-    setProfileOpen(false);
-    setTimeout(() => {
-      if (chatListRef.current && lastScrollTop.current !== null) {
-        chatListRef.current.scrollTop = lastScrollTop.current;
-      }
-    }, 100);
-  };
-
-  const handleUserProfileOpen = () => {
-    setProfileOpen(false); // 세로 프로필 닫기
-    setUserProfileOpen(true);
-  };
-
-  // Firestore에서 최근 30개 메시지만 불러오기(최신순)
-  useEffect(() => {
-    if (!user) return;
-    setLoadingMore(true);
-    const q = query(
-      collection(db, 'chats', user.uid, 'messages'),
-      orderBy('createdAt', 'desc'),
-      // 최신 30개만
-      limit(30)
-    );
-    getDocs(q).then(snapshot => {
-      const loaded: Message[] = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          sender: data.sender,
-          text: data.text,
-          createdAt: data.createdAt ? data.createdAt.toDate() : new Date(),
-        };
-      });
-      setMessages(loaded.reverse());
-      setLastLoadedDoc(snapshot.docs[snapshot.docs.length - 1] || null);
-      setHasMoreMessages(snapshot.docs.length === 30);
-      setLoadingMore(false);
-      setTimeout(scrollToBottom, 200);
-    });
-  }, [user]);
-
-  // 무한 스크롤: 상단 도달 시 20개씩 추가 로드
-  const handleChatScroll = async () => {
-    if (!chatListRef.current || loadingMore || !hasMoreMessages) return;
-    if (chatListRef.current.scrollTop < 60) {
-      setLoadingMore(true);
-      const q = query(
-        collection(db, 'chats', user.uid, 'messages'),
-        orderBy('createdAt', 'desc'),
-        startAfter(lastLoadedDoc),
-        limit(20)
-      );
-      const snapshot = await getDocs(q);
-      const loaded: Message[] = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          sender: data.sender,
-          text: data.text,
-          createdAt: data.createdAt ? data.createdAt.toDate() : new Date(),
-        };
-      });
-      setMessages(prev => [...loaded.reverse(), ...prev]);
-      setLastLoadedDoc(snapshot.docs[snapshot.docs.length - 1] || lastLoadedDoc);
-      setHasMoreMessages(snapshot.docs.length === 20);
-      setLoadingMore(false);
-      setTimeout(scrollToBottom, 200);
-    }
-  };
-
-  // 로그인 후 지난 채팅 내역 실시간 반영 (onSnapshot)
-  useEffect(() => {
-    if (!user) return;
-    const q = query(collection(db, 'chats', user.uid, 'messages'), orderBy('createdAt'));
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const loaded: Message[] = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          sender: data.sender,
-          text: data.text,
-          createdAt: data.createdAt ? data.createdAt.toDate() : new Date(),
-        };
-      });
-      setMessages(loaded);
-    });
-    return () => unsubscribe();
-  }, [user]);
-
-  // 로그인 후 사용자 닉네임/AI 이름 불러오기
-  useEffect(() => {
-    if (!user) return;
-    const fetchProfiles = async () => {
-      // 사용자 닉네임 & AI 이름을 profile/main에서 불러옴
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      let profileSnap = await getDoc(profileRef);
-      if (!profileSnap.exists()) {
-        // 최초 로그인 시 기본값 저장
-        const defaultNick = user.email?.split('@')[0] || '사용자';
-        await setDoc(profileRef, { nickname: defaultNick, name: '세로' });
-        setUserProfile({ nickname: defaultNick });
-        setAiProfile({ name: '세로' });
-      } else {
-        const data = profileSnap.data();
-        setUserProfile({ nickname: data.nickname || '사용자' });
-        setAiProfile({ name: data.name || '세로' });
-      }
-    };
-    fetchProfiles();
-  }, [user]);
-
-  // Firestore에서 태그/감정표현/TMT 비율 불러오기
-  useEffect(() => {
-    if (!user) return;
-    const fetchTags = async () => {
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      const snap = await getDoc(profileRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        setPersonaTags(data.personaTags || []);
-        setExpressionPrefs(data.expressionPrefs || []);
-        setTmtRatio(data.tmtRatio || 50);
-      } else {
-        // 최초 로그인 시 기본값 저장
-        const defaultTags = ['유쾌함', '진지함'];
-        await setDoc(profileRef, { personaTags: defaultTags, expressionPrefs: [], tmtRatio: 50 });
-        setPersonaTags(defaultTags);
-        setExpressionPrefs([]);
-        setTmtRatio(50);
-      }
-    };
-    fetchTags();
-  }, [user]);
-
-  // 태그/감정표현 변경 시 Firestore에 저장
-  const handleUpdateTags = async (tags: string[]) => {
-    setPersonaTags(tags);
-    if (user) {
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      await setDoc(profileRef, { personaTags: tags }, { merge: true });
-    }
-  };
-  const handleUpdateExpressionPrefs = async (prefs: string[]) => {
-    setExpressionPrefs(prefs);
-    if (user) {
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      await setDoc(profileRef, { expressionPrefs: prefs }, { merge: true });
-    }
-  };
-
-  // TMT 비율 업데이트 함수
-  const handleUpdateTmtRatio = async (ratio: number) => {
-    setTmtRatio(ratio);
-    if (user) {
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      await setDoc(profileRef, { tmtRatio: ratio }, { merge: true });
-    }
-  };
-
-  // 글로벌 세로 지침 상태
-  const [seroGuideline, setSeroGuideline] = useState('');
-  const [seroGuidelineLoading, setSeroGuidelineLoading] = useState(true);
-
-  // Firestore에서 글로벌 세로 지침 불러오기
-  useEffect(() => {
-    const fetchGuideline = async () => {
-      setSeroGuidelineLoading(true);
-      try {
-        const guidelineRef = doc(db, 'global', 'sero_guideline');
-        const snap = await getDoc(guidelineRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          setSeroGuideline(data.guideline || '');
-        } else {
-          setSeroGuideline('');
-        }
-      } catch (e) {
-        setSeroGuideline('');
-      }
-      setSeroGuidelineLoading(false);
-    };
-    fetchGuideline();
-  }, []);
-
-  // 사용자/세로 관계도 상태
-  const [userRelations, setUserRelations] = useState<any>(null);
-  const [seroRelations, setSeroRelations] = useState<any>(null);
-  const [relationsLoading, setRelationsLoading] = useState(true);
-
-  // Firestore에서 관계도 불러오기
-  useEffect(() => {
-    if (!user) return;
-    setRelationsLoading(true);
-    const fetchRelations = async () => {
-      try {
-        const userRef = doc(db, 'users', user.uid, 'relations', 'user');
-        const seroRef = doc(db, 'users', user.uid, 'relations', 'sero');
-        const userSnap = await getDoc(userRef);
-        const seroSnap = await getDoc(seroRef);
-        setUserRelations(userSnap.exists() ? userSnap.data() : null);
-        setSeroRelations(seroSnap.exists() ? seroSnap.data() : null);
-      } catch (e) {
-        setUserRelations(null);
-        setSeroRelations(null);
-      }
-      setRelationsLoading(false);
-    };
-    fetchRelations();
-  }, [user]);
-
-  // 관계도 요약 텍스트 생성 함수
-  function getRelationsSummary() {
-    let summary = '';
-    if (userRelations && userRelations.relations && Array.isArray(userRelations.relations)) {
-      summary += '[사용자 관계도]\n';
-      userRelations.relations.forEach((rel: any) => {
-        summary += `${rel.name}(${rel.type}): ${rel.desc || ''}`;
-        if (rel.episodes && rel.episodes.length > 0) {
-          summary += `, 에피소드: ${rel.episodes.join('; ')}`;
-        }
-        summary += '\n';
-      });
-    }
-    if (seroRelations && (seroRelations.characters || seroRelations.places)) {
-      summary += '[세로의 가상 관계도]\n';
-      if (seroRelations.characters && Array.isArray(seroRelations.characters)) {
-        seroRelations.characters.forEach((char: any) => {
-          summary += `${char.name}(${char.relation}): ${char.desc || ''}`;
-          if (char.episodes && char.episodes.length > 0) {
-            summary += `, 에피소드: ${char.episodes.join('; ')}`;
-          }
-          summary += '\n';
-        });
-      }
-      if (seroRelations.places && Array.isArray(seroRelations.places)) {
-        seroRelations.places.forEach((place: any) => {
-          summary += `공간: ${place.name} - ${place.desc || ''}\n`;
-        });
-      }
-    }
-    return summary.trim();
-  }
-
-  // 시스템 프롬프트 생성 함수 (관계도 요약 포함)
-  const updateSystemPrompt = (
-    tags: string[],
-    exprs: string[],
-    tmt: number,
-    charProf = characterProfile,
-    nickname = userProfile?.nickname || '사용자',
-    guideline = seroGuideline
-  ) => {
-    const aiName = aiProfile?.name || '세로';
-    const userName = nickname;
-    // 유효한 태그만 사용
-    const validTags = tags.filter(tag => allTags.some(t => t.name === tag));
-    const validExprs = exprs.filter(expr => expressionPresets.some(p => p.key === expr));
-    const tagCategories = getTagsByCategory(validTags);
-    const exprLabels = getExpressionLabels(validExprs);
-    let tagDesc = Object.entries(tagCategories)
-      .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
-      .join(' / ');
-    if (!tagDesc) tagDesc = '없음';
-    const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
-    let tmtInstruction = '';
-    if (tmt <= 20) {
-      tmtInstruction = '매우 간결하게 답변해. 한 문장으로 끝내는 것을 선호해.';
-    } else if (tmt <= 40) {
-      tmtInstruction = '간결하게 답변해. 2-3문장 정도로 답변해.';
-    } else if (tmt <= 60) {
-      tmtInstruction = '적당한 길이로 답변해. 3-5문장 정도로 답변해.';
-    } else if (tmt <= 80) {
-      tmtInstruction = '자세하게 답변해. 5-8문장 정도로 답변해.';
-    } else {
-      tmtInstruction = '매우 자세하게 답변해. 8문장 이상으로 상세하게 설명해.';
-    }
-    // 캐릭터 프로필 설명 추가
-    let charProfileDesc = '';
-    if (charProf.gender || charProf.job || charProf.description) {
-      charProfileDesc = `\n[캐릭터 정보]\n성별: ${charProf.gender || '미정'}\n직업: ${charProf.job || '미정'}\n설명: ${charProf.description || '없음'}`;
-    }
-    // 관계도 요약 추가
-    const relationsSummary = getRelationsSummary();
-
-    // 현재 시간 한글 포맷 + 타임존 (가장 최근 메시지 createdAt 기준)
-    let date = new Date();
-    if (messages && messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage.createdAt && typeof lastMessage.createdAt.toDate === 'function') {
-        date = lastMessage.createdAt.toDate();
-      } else if (lastMessage.createdAt instanceof Date) {
-        date = lastMessage.createdAt;
-      }
-    }
-    const days = ['일', '월', '화', '수', '목', '금', '토'];
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const offset = -date.getTimezoneOffset() / 60;
-    const offsetStr = (offset >= 0 ? '+' : '') + offset;
-    const hour = date.getHours();
-    const ampm = hour < 12 ? '오전' : '오후';
-    const hour12 = hour % 12 === 0 ? 12 : hour % 12;
-    const nowStr = `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${days[date.getDay()]}) ${ampm} ${hour12}시 ${date.getMinutes()}분 (${tz}, GMT${offsetStr})`;
-
-    // 시간+스케줄 고려 안내 추가
-    const timeInstruction = `지금은 ${nowStr}입니다. 반드시 현재 시간과 너의 직업, 라이프스타일, 스케줄을 고려해서 답변해. 예를 들어 네가 회사원이라면 점심시간엔 점심을 먹고 있다거나, 바텐더라면 새벽에 일하고 오전엔 자고 있다거나, 학생이면 수업 중일 수 있다는 식으로, 시간대와 네 페르소나의 일상/스케줄을 자연스럽게 반영해서 답변해.`;
-
-    const prompt =
-      (guideline ? `[세로의 기본 지침]\n${guideline}\n\n` : '') +
-      (relationsSummary ? relationsSummary + '\n\n' : '') +
-      `너는 감정형 페르소나 AI야. 네 이름은 "${aiName}"이고, 사용자의 닉네임은 "${userName}"이야.\n` +
-      `항상 본인 이름으로 자신을 지칭하고, 사용자를 부를 때는 "${userName}"이라고 불러.\n` +
-      `다음과 같은 성격과 감정표현 방식을 가지고 있어.\n` +
-      `성격/분위기 태그: ${tagDesc}\n` +
-      `감정표현 방식: ${exprDesc}\n` +
-      `답변 길이: ${tmtInstruction}${charProfileDesc}\n` +
-      `${timeInstruction}\n` +
-      `항상 위의 성격과 감정표현을 유지해서 자연스럽고 일관성 있게 답변해. (태그/감정표현/캐릭터 정보/관계도가 바뀌면 그에 맞게 말투와 분위기도 바뀌어야 해.)`;
-    setSystemPrompt(prompt);
-    return prompt;
-  };
-
-  // 대화 카운트 상태
-  const [messageExtractCount, setMessageExtractCount] = useState(0);
-  const [messageExtractThreshold, setMessageExtractThreshold] = useState(2); // 기본값 2
-
-  // Firestore에서 global/relation_count/count 불러오기
-  useEffect(() => {
-    const fetchRelationCount = async () => {
-      try {
-        const countRef = doc(db, 'global', 'relation_count');
-        const snap = await getDoc(countRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          if (typeof data.count === 'number' && data.count > 0) {
-            setMessageExtractThreshold(data.count);
-          }
-        }
-      } catch (e) {
-        // 실패 시 기본값 유지
-      }
-    };
-    fetchRelationCount();
-  }, []);
-
-  // 대화 카운트 증가 및 threshold마다 관계/자아 추출
-  const incrementMessageExtractCount = async () => {
-    if (!user) return;
-    const newCount = messageExtractCount + 1;
-    setMessageExtractCount(newCount);
-    const metaRef = doc(db, 'users', user.uid, 'meta', 'main');
-    await setDoc(metaRef, { messageExtractCount: newCount }, { merge: true });
-    if (newCount >= messageExtractThreshold) {
-      // Firestore에서 최근 threshold개 메시지 불러오기
-      const messagesRef = collection(db, 'chats', user.uid, 'messages');
-      const q = query(messagesRef, orderBy('createdAt', 'desc'), limit(messageExtractThreshold));
-      const snapshot = await getDocs(q);
-      const recentMessages = snapshot.docs.map(doc => doc.data()).reverse();
-      // GPT 프롬프트 구성
-      const chatText = recentMessages.map((m, i) => `${i + 1}. ${m.sender === 'user' ? '사용자' : '세로'}: ${m.text}`).join('\n');
-      const prompt = `아래는 최근 대화 내용입니다.\n\n[대화]\n${chatText}\n\n[요청]\n- 사용자와 세로의 대화에서 등장한 인물, 관계, 사건, 공간을 각각 분류해서 JSON으로 정리해줘.\n- 세로가 말한 자기서사/세계관(자아 정보)은 별도로 정리해줘.\n\n[출력 예시]\n{\n  "userRelations": [\n    { "name": "엄마", "type": "가족", "desc": "밥을 먹음", "episodes": ["밥 먹음"] }\n  ],\n  "seroRelations": [\n    { "name": "로라", "relation": "친구", "desc": "항상 도와줌", "episodes": ["도와줌"] }\n  ],\n  "seroIdentity": {\n    "places": [ { "name": "별빛마을", "desc": "세로가 자란 곳" } ],\n    "events": [],\n    "selfNarrative": ["나는 별빛마을에서 자랐어"]\n  }\n}`;
-      try {
-        const res = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            { role: 'system', content: prompt },
-            { role: 'user', content: 'JSON만 정확하게 출력해줘.' }
-          ],
-          temperature: 0.2
-        });
-        const aiText = res.choices[0].message?.content || '';
-        console.log('GPT 응답:', aiText); // 디버그
-        // JSON 파싱
-        let extracted;
-        try {
-          extracted = JSON.parse(aiText.replace(/```json|```/g, '').trim());
-        } catch (e) {
-          console.log('JSON 파싱 실패:', e, aiText); // 디버그
-          extracted = null;
-        }
-        console.log('파싱 결과:', extracted); // 디버그
-        if (extracted) {
-          // 1. 사용자 관계도
-          if ((Array.isArray(extracted.userRelations) && extracted.userRelations.length > 0) || (Array.isArray(extracted.seroRelations) && extracted.seroRelations.length > 0)) {
-            const relationsRef = doc(db, 'relations', user.uid, 'main', 'data');
-            const relationsSnap = await getDoc(relationsRef);
-            let prevUser = relationsSnap.exists() && Array.isArray(relationsSnap.data().userRelations) ? relationsSnap.data().userRelations : [];
-            let prevSero = relationsSnap.exists() && Array.isArray(relationsSnap.data().seroRelations) ? relationsSnap.data().seroRelations : [];
-
-            // 첫 저장 시 '비어있음' 데이터 모두 제거
-            if (prevUser.length === 1 && prevUser[0].name === "비어있음") prevUser = [];
-            if (prevSero.length === 1 && prevSero[0].name === "비어있음") prevSero = [];
-
-            // 사용자 관계 누적 (동일 인물+관계면 에피소드만 추가)
-            if (Array.isArray(extracted.userRelations)) {
-              extracted.userRelations.forEach((rel: any) => {
-                const idx = prevUser.findIndex((r: any) => r.name === rel.name && r.type === rel.type);
-                if (idx >= 0) {
-                  prevUser[idx].episodes = Array.isArray(prevUser[idx].episodes) ? prevUser[idx].episodes : [];
-                  rel.episodes = Array.isArray(rel.episodes) ? rel.episodes : [];
-                  prevUser[idx].episodes = Array.from(new Set([...prevUser[idx].episodes, ...rel.episodes]));
-                  if (rel.desc) prevUser[idx].desc = rel.desc;
-                } else {
-                  prevUser.push(rel);
-                }
-              });
-            }
-
-            // 세로 관계 누적 (동일 인물+관계면 에피소드만 추가)
-            if (Array.isArray(extracted.seroRelations)) {
-              extracted.seroRelations.forEach((rel: any) => {
-                const idx = prevSero.findIndex((r: any) => r.name === rel.name && r.relation === rel.relation);
-                if (idx >= 0) {
-                  prevSero[idx].episodes = Array.isArray(prevSero[idx].episodes) ? prevSero[idx].episodes : [];
-                  rel.episodes = Array.isArray(rel.episodes) ? rel.episodes : [];
-                  prevSero[idx].episodes = Array.from(new Set([...prevSero[idx].episodes, ...rel.episodes]));
-                  if (rel.desc) prevSero[idx].desc = rel.desc;
-                } else {
-                  prevSero.push(rel);
-                }
-              });
-            }
-
-            try {
-              console.log('Firestore 저장(관계도 통합) 직전:', { userRelations: prevUser, seroRelations: prevSero });
-              await setDoc(relationsRef, { userRelations: prevUser, seroRelations: prevSero }, { merge: true });
-              console.log('Firestore 저장(관계도 통합) 완료');
-            } catch (e) {
-              console.log('Firestore 저장(관계도 통합) 에러:', e);
-            }
-          }
-          // 2. 세로 자아(세계관)
-          if (extracted.seroIdentity) {
-            const profileRef = doc(db, 'users', user.uid, 'profile', 'main');
-            const profileSnap = await getDoc(profileRef);
-            let prevPlaces = profileSnap.exists() && Array.isArray(profileSnap.data().places) ? profileSnap.data().places : [];
-            let prevEvents = profileSnap.exists() && Array.isArray(profileSnap.data().events) ? profileSnap.data().events : [];
-            let prevNarr = profileSnap.exists() && Array.isArray(profileSnap.data().selfNarrative) ? profileSnap.data().selfNarrative : [];
-            if (Array.isArray(extracted.seroIdentity.places)) {
-              extracted.seroIdentity.places.forEach((place: any) => {
-                if (!prevPlaces.find((p: any) => p.name === place.name)) prevPlaces.push(place);
-              });
-            }
-            if (Array.isArray(extracted.seroIdentity.events)) {
-              extracted.seroIdentity.events.forEach((ev: any) => {
-                if (!prevEvents.find((e: any) => e.name === ev.name)) prevEvents.push(ev);
-              });
-            }
-            if (Array.isArray(extracted.seroIdentity.selfNarrative)) {
-              extracted.seroIdentity.selfNarrative.forEach((narr: string) => {
-                if (!prevNarr.includes(narr)) prevNarr.push(narr);
-              });
-            }
-            try {
-              console.log('Firestore 저장(세로 자아, profile/main) 직전:', { places: prevPlaces, events: prevEvents, selfNarrative: prevNarr });
-              await setDoc(profileRef, { places: prevPlaces, events: prevEvents, selfNarrative: prevNarr }, { merge: true });
-              console.log('Firestore 저장(세로 자아, profile/main) 완료');
-            } catch (e) {
-              console.log('Firestore 저장(세로 자아, profile/main) 에러:', e);
-            }
-          }
-        }
-      } catch (err) {
-        console.log('GPT 호출/전체 에러:', err); // 디버그
-      }
-      // 카운트 0으로 초기화
-      setMessageExtractCount(0);
-      await setDoc(metaRef, { messageExtractCount: 0 }, { merge: true });
-    }
-  };
-
-  const handleSend = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    const userMsg = { sender: 'user' as const, text: input };
-    setInput('');
-    setLoading(true);
-    setAiTyping(true);
-    await saveMessage(userMsg);
-    setTimeout(scrollToBottom, 200);
-    try {
-      // system prompt 동적 생성 (characterProfile, nickname, 글로벌 지침, 관계도 항상 반영)
-      const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자', seroGuideline);
-      const chatMessages: ChatCompletionMessageParam[] = [
-        { role: 'system', content: prompt },
-        ...messages.map(m => ({
-          role: m.sender === 'user' ? 'user' : 'assistant',
-          content: m.text,
-        }) as { role: 'user' | 'assistant'; content: string }),
-        { role: 'user', content: input } as { role: 'user'; content: string },
-      ];
-      const res = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: chatMessages,
-      });
-      const aiText = res.choices[0].message?.content || '';
-      await addAiMessagesWithDelay(aiText);
-    } catch (err) {
-      await addAiMessagesWithDelay('오류가 발생했습니다.');
-    }
-    setLoading(false);
-    // 대화 카운트 증가 및 threshold마다 관계/자아 추출
-    await incrementMessageExtractCount();
-  };
-
-  React.useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-  }, [messages]);
-
-  // AI 메시지 여러 문장 순차 출력 (80ms * 글자수 딜레이)
-  useEffect(() => {
-    if (typeof window !== 'undefined' && (window as any).__setParticleFast) {
-      (window as any).__setParticleFast(aiTyping);
-    }
-  }, [aiTyping]);
-
-  // 새로운 상태 추가
-  const [aiNameInput, setAiNameInput] = useState(aiProfile?.name || '세로');
+  const [showPersonaSelect, setShowPersonaSelect] = useState(true);
+  
+  // 누락된 상태 변수들 추가
+  const [tagEditMode, setTagEditMode] = useState(false);
+  const [aiNameInput, setAiNameInput] = useState('');
   const [aiNameEditOpen, setAiNameEditOpen] = useState(false);
   const [aiNameError, setAiNameError] = useState('');
   const [aiNameSaving, setAiNameSaving] = useState(false);
 
-  // AI 이름 저장 및 감격 자동응답 생성
-  const handleSaveAiName = async () => {
-    if (aiNameInput.trim() === '') {
-      setAiNameError('이름을 입력해주세요.');
-      return;
-    }
-    if (user) {
-      setAiNameSaving(true);
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      try {
-        await setDoc(profileRef, { name: aiNameInput }, { merge: true });
-        // Firestore에서 최신 이름을 다시 읽어와 상태에 반영
-        const snap = await getDoc(profileRef);
-        let newName = aiNameInput;
-        if (snap.exists() && snap.data().name) {
-          newName = snap.data().name;
-        }
-        setAiProfile({ name: newName });
-        setAiNameEditOpen(false);
-        setAiNameSaving(false);
-        // 페르소나 정보 기반 프롬프트 생성
-        const userName = userProfile && userProfile.nickname ? userProfile.nickname : '사용자';
-        const tagCategories = getTagsByCategory(personaTags);
-        const exprLabels = getExpressionLabels(expressionPrefs);
-        let tagDesc = Object.entries(tagCategories)
-          .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
-          .join(' / ');
-        if (!tagDesc) tagDesc = '없음';
-        const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
-        
-        // TMT 비율에 따른 답변 길이 지시
-        let tmtInstruction = '';
-        if (tmtRatio <= 20) {
-          tmtInstruction = '매우 간결하게 답변해. 한 문장으로 끝내는 것을 선호해.';
-        } else if (tmtRatio <= 40) {
-          tmtInstruction = '간결하게 답변해. 2-3문장 정도로 답변해.';
-        } else if (tmtRatio <= 60) {
-          tmtInstruction = '적당한 길이로 답변해. 3-5문장 정도로 답변해.';
-        } else if (tmtRatio <= 80) {
-          tmtInstruction = '자세하게 답변해. 5-8문장 정도로 답변해.';
-        } else {
-          tmtInstruction = '매우 자세하게 답변해. 8문장 이상으로 상세하게 설명해.';
-        }
-        
-        const personaPrompt =
-          `너는 감정형 페르소나 AI야. 네 성격/분위기 태그는 ${tagDesc}이고, 감정표현 방식은 ${exprDesc}야.\n` +
-          `답변 길이: ${tmtInstruction}\n` +
-          `사용자가 너에게 새로운 이름 "${aiNameInput}"을 선물해줬어.\n` +
-          `이 상황에서 네 페르소나에 맞게, 진심으로 벅차고 감격스럽고 고마운 마음을 최대한 풍부하게 한글로 답장해줘.\n` +
-          `반드시 네 페르소나(성격/분위기/감정표현)를 반영해서 자연스럽고 일관성 있게 답변해야 해.`;
-        // OpenAI API 호출
-        const res = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            { role: 'system', content: personaPrompt },
-            { role: 'user', content: '이름을 선물받은 네 감정을 표현해줘.' },
-          ],
-        });
-        const aiText = res.choices[0].message?.content || '';
-        // Firestore 및 UI에 자동응답 메시지 추가
-        await addAiMessagesWithDelay(aiText);
-        setTimeout(scrollToBottom, 200);
-      } catch (err) {
-        setAiNameError('이름 저장 또는 자동응답 생성 중 오류가 발생했습니다.');
-        setAiNameSaving(false);
-      }
-    }
-  };
-
-  // 닉네임 저장도 profile/main에 저장 및 동기화
-  const saveUserNickname = async () => {
-    if (user) {
-      setUserNickSaving(true);
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      try {
-        await setDoc(profileRef, { nickname: userNickInput }, { merge: true });
-        // Firestore에서 최신 닉네임을 다시 읽어와 상태에 반영
-        const snap = await getDoc(profileRef);
-        let newNick = userNickInput;
-        if (snap.exists() && snap.data().nickname) {
-          newNick = snap.data().nickname;
-        }
-        setUserProfile({ ...userProfile, nickname: newNick });
-        setUserNickEdit(false);
-        setUserNickSaving(false);
-      } catch (err) {
-        console.error('닉네임 저장 오류:', err);
-        setUserNickError('닉네임 저장 중 오류가 발생했습니다.');
-        setUserNickSaving(false);
-      }
-    }
-  };
-
-  // 1. 로그인 시 항상 최하단으로 스크롤
+  // 2. useEffect 등 Hook 선언 (조건문/return문보다 위)
   useEffect(() => {
-    if (user && messages.length > 0) {
-      setTimeout(scrollToBottom, 100);
-    }
-  }, [user, messages]);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthInitializing(false);
+      if (!currentUser) {
+        setUserProfile(null);
+        setAiProfile(null);
+        setSelectedPersonaId(null);
+        setPersonas([]);
+        setShowPersonaSelect(true);
+        setMessages([]);
+        setInput('');
+        setProfileOpen(false);
+        setUserProfileOpen(false);
+        setPersonaTags([]);
+        setExpressionPrefs([]);
+        setTmtRatio(50);
+        setCharacterProfile({ gender: '', job: '', description: '' });
+        setLastLoadedDoc(null);
+        setHasMoreMessages(true);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-  // 세로 프로필 모달 내 태그 재설정 기능
-  const [tagEditMode, setTagEditMode] = useState(false);
-
-  // 시스템 프롬프트 상태 추가
-  const [systemPrompt, setSystemPrompt] = useState('');
-
-  // 프로필 재설정 완료 시 Firestore에 현재 값 저장
-  const handleProfileResetComplete = async () => {
-    if (user) {
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      await setDoc(profileRef, {
-        personaTags,
-        expressionPrefs,
-        tmtRatio,
-        characterGender: characterProfile.gender,
-        characterJob: characterProfile.job,
-        characterDescription: characterProfile.description
-      }, { merge: true });
-    }
-    updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile);
-    setTagEditMode(false);
-  };
-
-  // 로그아웃 함수 추가
-  const handleLogout = async () => {
-    try {
-      await auth.signOut();
-      setUser(null);
-      setUserProfileOpen(false);
-    } catch (error) {
-      console.error('로그아웃 오류:', error);
-    }
-  };
-
-  // Firestore에서 캐릭터 프로필 불러오기
+  // 페르소나 데이터 로드
   useEffect(() => {
     if (!user) return;
-    const fetchCharacterProfile = async () => {
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      const snap = await getDoc(profileRef);
-      if (snap.exists()) {
-        const data = snap.data();
+    
+    const personasCol = collection(db, 'users', user.uid, 'personas');
+    const unsubscribe = onSnapshot(personasCol, (snapshot) => {
+      const loaded: Persona[] = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name || '세로',
+          personaTags: data.personaTags || [],
+          expressionPrefs: data.expressionPrefs || [],
+          tmtRatio: data.tmtRatio || 50,
+          characterGender: data.characterGender || '',
+          characterJob: data.characterJob || '',
+          characterDescription: data.characterDescription || '',
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
+        };
+      });
+      setPersonas(loaded);
+      
+      // 첫 번째 페르소나 자동 선택
+      if (loaded.length > 0 && !selectedPersonaId) {
+        setSelectedPersonaId(loaded[0].id);
+      }
+    });
+    
+    return () => unsubscribe();
+  }, [user, selectedPersonaId]);
+
+  // 선택된 페르소나의 프로필 데이터 로드
+  useEffect(() => {
+    if (!user || !selectedPersonaId) return;
+    
+    const personaRef = doc(db, 'users', user.uid, 'personas', selectedPersonaId);
+    const unsubscribe = onSnapshot(personaRef, (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        setPersonaTags(data.personaTags || []);
+        setExpressionPrefs(data.expressionPrefs || []);
+        setTmtRatio(data.tmtRatio || 50);
         setCharacterProfile({
           gender: data.characterGender || '',
           job: data.characterJob || '',
           description: data.characterDescription || ''
         });
-      } else {
-        setCharacterProfile({ gender: '', job: '', description: '' });
       }
-    };
-    fetchCharacterProfile();
-  }, [user]);
+    });
+    
+    return () => unsubscribe();
+  }, [user, selectedPersonaId]);
 
-  // Firestore에 relations/{uid}/main/data 문서가 없으면 '비어있음' 한글 기본값으로 초기화
+  // 사용자 프로필 데이터 로드
   useEffect(() => {
     if (!user) return;
-    const initRelations = async () => {
-      const relationsRef = doc(db, 'relations', user.uid, 'main', 'data');
-      const relationsSnap = await getDoc(relationsRef);
-      if (!relationsSnap.exists()) {
-        await setDoc(relationsRef, {
-          userRelations: [{ name: "비어있음", type: "비어있음", desc: "비어있음", episodes: ["비어있음"] }],
-          seroRelations: [{ name: "비어있음", relation: "비어있음", desc: "비어있음", episodes: ["비어있음"] }]
+    
+    const userRef = doc(db, 'users', user.uid);
+    const profileRef = doc(userRef, 'profile', 'main');
+    const unsubscribe = onSnapshot(profileRef, (doc) => {
+      if (doc.exists()) {
+        const data = doc.data();
+        setUserProfile({
+          nickname: data.nickname || '사용자',
+          photoURL: data.photoURL
         });
-        console.log('Firestore relations/{uid}/main/data 문서 "비어있음" 기본값으로 초기화 완료');
+        setAiProfile({
+          name: data.aiName || '세로'
+        });
       }
-    };
-    initRelations();
+    });
+    
+    return () => unsubscribe();
   }, [user]);
 
-  // textarea 자동 높이 조절
+  // 메시지 데이터 로드
+  useEffect(() => {
+    if (!user || !selectedPersonaId) return;
+    
+    const chatsCol = collection(db, 'chats', user.uid, 'messages');
+    const q = query(
+      chatsCol,
+      where('personaId', '==', selectedPersonaId),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const loadedMessages: Message[] = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          sender: data.sender,
+          text: data.text,
+          createdAt: data.createdAt?.toDate() || new Date()
+        };
+      }).reverse();
+      setMessages(loadedMessages);
+    });
+    
+    return () => unsubscribe();
+  }, [user, selectedPersonaId]);
+
+  // 로그인 후 페르소나가 1개 이상 있으면 자동으로 선택화면 닫기
+  useEffect(() => {
+    if (user && personas.length > 0 && selectedPersonaId) {
+      setShowPersonaSelect(false);
+    }
+  }, [user, personas, selectedPersonaId]);
+
+  // 텍스트 영역 자동 높이 조정
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
-      const minHeight = 44;
-      if (!input) {
-        textareaRef.current.style.height = minHeight + 'px';
-      } else {
-        textareaRef.current.style.height = Math.max(textareaRef.current.scrollHeight, minHeight) + 'px';
-      }
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
     }
   }, [input]);
 
+  // 메시지 스크롤 자동 이동
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // 3. 조건부 렌더링은 Hook 선언 이후에만 사용
+  if (authInitializing) {
+    return <div style={{width:'100vw',height:'100vh',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22,color:'#1976d2',background:'#f8fafc'}}>로딩 중...</div>;
+  }
   if (!user) {
-    return <AuthForm onAuthSuccess={setUser} />;
+    return <AuthForm />;
   }
 
+
+
+  // 새 페르소나 생성 함수
+  const handleCreatePersona = async () => {
+    if (!user || personas.length >= 3) return;
+    const personasCol = collection(db, 'users', user.uid, 'personas');
+    const newDoc = await addDoc(personasCol, {
+      name: `세로 ${personas.length + 1}`,
+      personaTags: [],
+      expressionPrefs: [],
+      tmtRatio: 50,
+      characterGender: '',
+      characterJob: '',
+      characterDescription: '',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    setSelectedPersonaId(newDoc.id);
+    // 새로고침 없이 바로 반영되도록 fetchPersonas 재호출
+    const snapshot = await getDocs(personasCol);
+    const loaded: Persona[] = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name || '세로',
+        personaTags: data.personaTags || [],
+        expressionPrefs: data.expressionPrefs || [],
+        tmtRatio: data.tmtRatio || 50,
+        characterGender: data.characterGender || '',
+        characterJob: data.characterJob || '',
+        characterDescription: data.characterDescription || '',
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt,
+      };
+    });
+    setPersonas(loaded);
+  };
+
+  // 페르소나 선택 핸들러
+  const handleSelectPersona = (id: string) => {
+    setSelectedPersonaId(id);
+    setShowPersonaSelect(false);
+    // 메시지 초기화 (새 페르소나의 메시지가 로드됨)
+    setMessages([]);
+    setLastLoadedDoc(null);
+    setHasMoreMessages(true);
+  };
+
+  // 누락된 함수들 추가
+  const handleProfileOpen = () => setProfileOpen(true);
+  const handleProfileClose = () => setProfileOpen(false);
+  const handleUserProfileOpen = () => setUserProfileOpen(true);
+  const handleLogout = () => auth.signOut();
+  
+  const saveUserNickname = async () => {
+    if (!user || !userNickInput.trim()) return;
+    setUserNickSaving(true);
+    setUserNickError('');
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const profileRef = doc(userRef, 'profile', 'main');
+      await setDoc(profileRef, { nickname: userNickInput.trim() }, { merge: true });
+      setUserProfile(prev => ({ ...prev, nickname: userNickInput.trim() }));
+      setUserNickEdit(false);
+    } catch (error) {
+      setUserNickError('닉네임 저장에 실패했습니다.');
+    } finally {
+      setUserNickSaving(false);
+    }
+  };
+
+  const handleSaveAiName = async () => {
+    if (!user || !aiNameInput.trim()) return;
+    setAiNameSaving(true);
+    setAiNameError('');
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const profileRef = doc(userRef, 'profile', 'main');
+      await setDoc(profileRef, { aiName: aiNameInput.trim() }, { merge: true });
+      setAiProfile(prev => ({ ...prev, name: aiNameInput.trim() }));
+      setAiNameEditOpen(false);
+    } catch (error) {
+      setAiNameError('이름 저장에 실패했습니다.');
+    } finally {
+      setAiNameSaving(false);
+    }
+  };
+
+  const handleUpdateTmtRatio = (value: number) => {
+    setTmtRatio(value);
+    if (user) {
+      const userRef = doc(db, 'users', user.uid);
+      const profileRef = doc(userRef, 'profile', 'main');
+      setDoc(profileRef, { tmtRatio: value }, { merge: true });
+    }
+  };
+
+  const handleAutoGenerateCharacter = async () => {
+    if (!user) return;
+    setCharacterGenLoading(true);
+    setCharacterGenError('');
+    try {
+      // 간단한 자동 생성 로직 (실제로는 AI API 호출)
+      const generated = {
+        gender: ['남성', '여성', '미정'][Math.floor(Math.random() * 3)],
+        job: ['대학생', '직장인', '프리랜서', '미정'][Math.floor(Math.random() * 4)],
+        description: '밝고 외향적인 성격입니다.'
+      };
+      setCharacterProfile(generated);
+      
+      if (selectedPersonaId) {
+        const personaRef = doc(db, 'users', user.uid, 'personas', selectedPersonaId);
+        await updateDoc(personaRef, { 
+          characterGender: generated.gender,
+          characterJob: generated.job,
+          characterDescription: generated.description,
+          updatedAt: new Date()
+        });
+      }
+    } catch (error) {
+      setCharacterGenError('캐릭터 생성에 실패했습니다.');
+    } finally {
+      setCharacterGenLoading(false);
+    }
+  };
+
+  const handleProfileResetComplete = () => {
+    setTagEditMode(false);
+  };
+
+  const handleSend = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !user || !selectedPersonaId) return;
+    
+    const userMessage = input.trim();
+    setInput('');
+    setLoading(true);
+    
+    // 사용자 메시지 추가
+    const newUserMessage: Message = {
+      sender: 'user',
+      text: userMessage,
+      createdAt: new Date()
+    };
+    setMessages(prev => [...prev, newUserMessage]);
+    
+    try {
+      // Firestore에 메시지 저장
+      const chatsCol = collection(db, 'chats', user.uid, 'messages');
+      await addDoc(chatsCol, {
+        ...newUserMessage,
+        personaId: selectedPersonaId,
+        createdAt: serverTimestamp()
+      });
+      
+      // AI 응답 생성 (간단한 예시)
+      setAiTyping(true);
+      setTimeout(() => {
+        const aiResponse: Message = {
+          sender: 'ai',
+          text: `안녕하세요! ${userMessage}에 대한 답변입니다.`,
+          createdAt: new Date()
+        };
+        setMessages(prev => [...prev, aiResponse]);
+        setAiTyping(false);
+        
+        // AI 응답도 Firestore에 저장
+        addDoc(chatsCol, {
+          ...aiResponse,
+          personaId: selectedPersonaId,
+          createdAt: serverTimestamp()
+        });
+      }, 1000);
+    } catch (error) {
+      console.error('메시지 전송 실패:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChatScroll = () => {
+    if (!chatListRef.current) return;
+    const { scrollTop } = chatListRef.current;
+    lastScrollTop.current = scrollTop;
+  };
+
+  // 조건부 렌더링: 로그인 화면, 세로 선택 화면, 메인 채팅 화면
+  if (!user) {
+    return <AuthForm />;
+  }
+
+  if (showPersonaSelect) {
+    return (
+      <div className="messenger-container">
+        <div className="messenger-content" style={{ position: 'relative' }}>
+          {/* 세로 선택 화면 */}
+          <div style={{ padding: '40px 24px', textAlign: 'center' }}>
+            <h2 style={{ color: '#1976d2', fontSize: 24, fontWeight: 700, marginBottom: 32 }}>세로 선택</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 320, margin: '0 auto' }}>
+              {personas.map((persona) => (
+                <button
+                  key={persona.id}
+                  onClick={() => handleSelectPersona(persona.id)}
+                  style={{
+                    background: 'rgba(255,255,255,0.8)',
+                    border: '2px solid #e3eaf5',
+                    borderRadius: 16,
+                    padding: '20px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    textAlign: 'left',
+                    boxShadow: '0 4px 16px 0 rgba(31,38,135,0.08)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.95)';
+                    e.currentTarget.style.borderColor = '#90caf9';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 8px 24px 0 rgba(31,38,135,0.12)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.8)';
+                    e.currentTarget.style.borderColor = '#e3eaf5';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(31,38,135,0.08)';
+                  }}
+                >
+                  <div style={{ fontWeight: 700, color: '#1976d2', fontSize: 18, marginBottom: 8 }}>{persona.name}</div>
+                  <div style={{ color: '#666', fontSize: 14 }}>
+                    {persona.personaTags.length > 0 ? persona.personaTags.slice(0, 3).join(', ') : '기본 설정'}
+                  </div>
+                </button>
+              ))}
+              {personas.length < 3 && (
+                <button
+                  onClick={handleCreatePersona}
+                  style={{
+                    background: 'linear-gradient(90deg, #90caf9 0%, #1976d2 100%)',
+                    border: 'none',
+                    borderRadius: 16,
+                    padding: '20px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: 16,
+                    boxShadow: '0 4px 16px 0 rgba(120,180,255,0.3)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 8px 24px 0 rgba(120,180,255,0.4)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(120,180,255,0.3)';
+                  }}
+                >
+                  + 새 세로 만들기
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 메인 채팅 UI 렌더링 부분 상단에 좌측 상단 화살표 버튼 추가
   return (
     <div className="messenger-container">
+
       <div className="messenger-content" style={{ position: 'relative' }}>
         {/* 사용자 프로필 모달 */}
         {userProfileOpen && (
@@ -1243,9 +848,41 @@ function App() {
         )}
         {/* 상단 프로필/AI 이름 영역 */}
         <div className="profile-bar" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="profile-info" onClick={handleProfileOpen}>
-            <div className="profile-avatar" style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', background: 'transparent', boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)' }}>
-              <ParticleAvatar size={38} particleCount={540} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* 세로 선택 화살표 버튼 */}
+            <button
+              onClick={() => setShowPersonaSelect(true)}
+              aria-label="세로 선택"
+              style={{
+                background: 'none', 
+                border: 'none', 
+                borderRadius: '50%', 
+                width: 32, 
+                height: 32, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                cursor: 'pointer', 
+                boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)', 
+                transition: 'background 0.2s', 
+                color: '#1976d2'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(144,202,249,0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'none';
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M15 18L9 12L15 6" stroke="#1976d2" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            {/* 파티클 아바타 (세로 프로필 설정 버튼) */}
+            <div className="profile-info" onClick={handleProfileOpen}>
+              <div className="profile-avatar" style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', background: 'transparent', boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)' }}>
+                <ParticleAvatar size={38} particleCount={540} />
+              </div>
             </div>
           </div>
           {/* 우측상단 사용자 프로필 아이콘 */}
@@ -1278,7 +915,9 @@ function App() {
               <div key={idx} className={msg.sender === 'user' ? 'chat-message user' : 'chat-message ai'} style={msg.sender === 'ai' ? { position: 'relative', paddingTop: 22, paddingLeft: 8 } : {}}>
                 {/* 세로(AI) 메시지일 때만 이름 표시 */}
                 {msg.sender === 'ai' && (
-                  <div style={{ position: 'absolute', left: 12, top: 6, fontSize: 13, color: '#1976d2', fontWeight: 700, letterSpacing: 0.2 }}>{aiProfile?.name || '세로'}</div>
+                  <div style={{ position: 'absolute', left: 12, top: 6, fontSize: 13, color: '#1976d2', fontWeight: 700, letterSpacing: 0.2, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    {aiProfile?.name || '세로'}
+                  </div>
                 )}
                 <div className="chat-message-content" style={{ whiteSpace: 'pre-line' }}>{msg.text}</div>
                 <div className="chat-message-time">{timeStr}</div>
@@ -1587,20 +1226,53 @@ function App() {
                         type="text"
                         placeholder="성별 (예: 남성, 여성, 미정)"
                         value={characterProfile.gender}
-                        onChange={e => setCharacterProfile(p => ({ ...p, gender: e.target.value }))}
+                        onChange={e => {
+                          const newGender = e.target.value;
+                          setCharacterProfile(p => ({ ...p, gender: newGender }));
+                          // 실시간으로 페르소나에 저장
+                          if (user && selectedPersonaId) {
+                            const personaRef = doc(db, 'users', user.uid, 'personas', selectedPersonaId);
+                            updateDoc(personaRef, { 
+                              characterGender: newGender,
+                              updatedAt: new Date()
+                            });
+                          }
+                        }}
                         style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15 }}
                       />
                       <input
                         type="text"
                         placeholder="직업 (예: 대학생, 디자이너, 미정)"
                         value={characterProfile.job}
-                        onChange={e => setCharacterProfile(p => ({ ...p, job: e.target.value }))}
+                        onChange={e => {
+                          const newJob = e.target.value;
+                          setCharacterProfile(p => ({ ...p, job: newJob }));
+                          // 실시간으로 페르소나에 저장
+                          if (user && selectedPersonaId) {
+                            const personaRef = doc(db, 'users', user.uid, 'personas', selectedPersonaId);
+                            updateDoc(personaRef, { 
+                              characterJob: newJob,
+                              updatedAt: new Date()
+                            });
+                          }
+                        }}
                         style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15 }}
                       />
                       <textarea
                         placeholder="간단한 설명 (예: 밝고 외향적인 성격의 대학생)"
                         value={characterProfile.description}
-                        onChange={e => setCharacterProfile(p => ({ ...p, description: e.target.value }))}
+                        onChange={e => {
+                          const newDescription = e.target.value;
+                          setCharacterProfile(p => ({ ...p, description: newDescription }));
+                          // 실시간으로 페르소나에 저장
+                          if (user && selectedPersonaId) {
+                            const personaRef = doc(db, 'users', user.uid, 'personas', selectedPersonaId);
+                            updateDoc(personaRef, { 
+                              characterDescription: newDescription,
+                              updatedAt: new Date()
+                            });
+                          }
+                        }}
                         style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15, minHeight: 48 }}
                       />
                     </div>
