@@ -6,6 +6,12 @@ import { db, auth } from './firebase';
 import { collection, addDoc, serverTimestamp, query, orderBy, getDocs, doc, getDoc, setDoc, onSnapshot, updateDoc, limit, startAfter } from 'firebase/firestore';
 import AuthForm from './AuthForm';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { ParticleAvatar, ChatMessage, ProfileModal, ChatInput } from './components';
+import { useAuth } from './hooks/useAuth';
+import { useChat } from './hooks/useChat';
+import { useProfile } from './hooks/useProfile';
+import { useGlobalSettings } from './hooks/useGlobalSettings';
+import { useRelations } from './hooks/useRelations';
 
 interface Message {
   sender: 'user' | 'ai';
@@ -80,217 +86,7 @@ const getTagsByCategory = (tags: string[]) => {
   return categoryMap;
 };
 
-// 파동/에너지 파티클 아바타 컴포넌트 (이미 import된 React/useRef/useEffect 사용)
-const ParticleAvatar: React.FC<{ size?: number; particleCount?: number }> = ({ size = 38, particleCount = 540 }) => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fastTarget = useRef(1);
-  const fastValue = useRef(1);
-  const colorLerpValue = useRef(0);
-  const [_, setRerender] = React.useState(0);
-  const [glow, setGlow] = React.useState(false);
-  const [hovered, setHovered] = React.useState(false);
-  const [outerGlow, setOuterGlow] = React.useState(false);
-
-  // 활성화 상태에 따라 파티클 수 결정
-  const activeParticleCount = hovered || glow ? Math.floor(particleCount / 2) : particleCount;
-  // 파티클 배열 useState로 관리
-  const [particles, setParticles] = React.useState<any[]>([]);
-
-  // 캔버스 관련 값 useRef로 관리
-  const cxRef = useRef(0);
-  const cyRef = useRef(0);
-  const rRef = useRef(0);
-
-  useEffect(() => {
-    const cx = size / 2;
-    const cy = size / 2;
-    const r = size / 2 - 1;
-    cxRef.current = cx;
-    cyRef.current = cy;
-    rRef.current = r;
-    setParticles(Array.from({ length: activeParticleCount }).map((_, i) => {
-      const theta = (2 * Math.PI * i) / activeParticleCount;
-      // phase는 0~2PI 사이로만 약간 랜덤하게
-      const phase = Math.random() * Math.PI * 2;
-      return {
-        baseX: cx,
-        baseY: cy,
-        angle: theta,
-        baseRadius: r,
-        targetRadius: r,
-        currentRadius: r,
-        phase,
-      };
-    }));
-  }, [activeParticleCount, size]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.scale(dpr, dpr);
-    let running = true;
-    function draw(t: number) {
-      if (!ctx) return;
-      fastValue.current += (fastTarget.current - fastValue.current) * 0.05;
-      fastValue.current = Math.max(0.1, Math.min(1, fastValue.current));
-      const colorTarget = hovered || glow ? 1 : 0;
-      colorLerpValue.current += (colorTarget - colorLerpValue.current) * 0.08;
-      ctx.clearRect(0, 0, size, size);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cxRef.current, cyRef.current, rRef.current, 0, 2 * Math.PI);
-      ctx.clip();
-      for (let i = 0; i < particles.length; i++) {
-        const p = particles[i];
-        let px, py;
-        let particleRadius = 1;
-        if (hovered || glow) {
-          // 원형 테두리에 정확히 분포, 중앙 쪽으로만 살짝 튀는 효과
-          const drumFreq = 0.0028; // 튀는 속도(30% 감소)
-          const drumAmp = 4; // 튀는 세기 줄임
-          const drum = Math.abs(Math.sin(t * drumFreq + p.phase)) * drumAmp;
-          const targetRadius = rRef.current - drum;
-          p.currentRadius += (targetRadius - p.currentRadius) * 0.028;
-          px = cxRef.current + p.currentRadius * Math.cos(p.angle);
-          py = cyRef.current + p.currentRadius * Math.sin(p.angle);
-        } else {
-          const θ = p.angle;
-          const baseRadius = rRef.current * 0.7;
-          const wave = Math.sin(t * 0.001 + θ * 3 + p.phase) * 12;
-          let radius = baseRadius + wave;
-          if (radius > rRef.current - 2) {
-            p.phase += Math.random() * 0.5;
-            radius = rRef.current - 2 - Math.abs(wave) * 0.5;
-          }
-          p.currentRadius += (radius - p.currentRadius) * 0.09;
-          px = cxRef.current + p.currentRadius * Math.cos(θ);
-          py = cyRef.current + p.currentRadius * Math.sin(θ);
-        }
-        const colorLerp = colorLerpValue.current;
-        const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-        const rC = Math.round(lerp(144, 25, colorLerp));
-        const gC = Math.round(lerp(202, 118, colorLerp));
-        const bC = Math.round(lerp(249, 210, colorLerp));
-        const color = `rgba(${rC},${gC},${bC},0.95)`;
-        ctx.beginPath();
-        ctx.arc(px, py, particleRadius, 0, 2 * Math.PI);
-        ctx.fillStyle = color;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = hovered || glow ? 3 : 1;
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-    function animate(now: number) {
-      if (!running) return;
-      draw(now);
-      setRerender(v => v + 1);
-      requestAnimationFrame(animate);
-    }
-    animate(performance.now());
-    return () => { running = false; };
-  }, [size, particles, hovered, glow]);
-
-  // hover/typing 상태에 따라 targetRadius 변경
-  const updateTarget = () => {
-    for (let i = 0; i < particles.length; i++) {
-      particles[i].targetRadius = (hovered || glow) ? rRef.current : particles[i].baseRadius;
-    }
-  };
-  updateTarget();
-
-  // 마우스 이벤트: 파티클 흩어짐/복귀, glow 효과
-  const handleEnter = () => {
-    setHovered(true);
-    fastTarget.current = 0.01;
-    setGlow(true);
-    setOuterGlow(true);
-  };
-  const handleLeave = () => {
-    setHovered(false);
-    fastTarget.current = 2;
-    setGlow(false);
-    setOuterGlow(false);
-  };
-  // 외부에서 세로가 채팅 칠 때도 파동 커브 효과
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      (window as any).__setParticleFast = (v: boolean) => {
-        fastTarget.current = v ? 0.1 : 1;
-        setGlow(v);
-        setOuterGlow(v);
-      };
-    }
-    return () => {
-      if (typeof window !== 'undefined') delete (window as any).__setParticleFast;
-    };
-  }, []);
-
-  // 입체/빛나는 테두리 효과
-  const borderStyle = hovered || glow
-    ? {
-        boxShadow: '0 0 0 4px #b3e5fc, 0 0 16px 8px #90caf9cc, 0 2px 16px 0 #90caf9',
-        border: '2.5px solid #90caf9',
-        background: 'radial-gradient(circle at 50% 50%, #fff 60%, #e3f2fd 100%)',
-        transition: 'box-shadow 0.35s cubic-bezier(.4,2,.2,1), border 0.35s, background 0.35s',
-      }
-    : {
-        boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)',
-        border: '2.5px solid #e3eaf5',
-        background: '#fff',
-        transition: 'box-shadow 0.35s, border 0.35s, background 0.35s',
-      };
-
-  return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <canvas
-        ref={canvasRef}
-        width={size * (window.devicePixelRatio || 1)}
-        height={size * (window.devicePixelRatio || 1)}
-        style={{
-          width: size,
-          height: size,
-          borderRadius: '50%',
-          display: 'block',
-          cursor: 'pointer',
-          ...borderStyle,
-        }}
-        onMouseEnter={handleEnter}
-        onMouseLeave={handleLeave}
-      />
-      {/* Outer Glow 애니메이션 */}
-      {outerGlow && (
-        <div
-          style={{
-            position: 'absolute',
-            top: -8,
-            left: -8,
-            width: size + 16,
-            height: size + 16,
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, #90caf9 0%, #90caf9 30%, transparent 70%)',
-            opacity: 0.6,
-            animation: 'outer-glow-pulse 1.5s ease-in-out infinite',
-            pointerEvents: 'none',
-            zIndex: -1,
-          }}
-        />
-      )}
-      <style>{`
-        @keyframes outer-glow-pulse {
-          0%, 100% { opacity: 0.3; transform: scale(1); }
-          50% { opacity: 0.8; transform: scale(1.1); }
-        }
-      `}</style>
-    </div>
-  );
-};
+// ParticleAvatar 컴포넌트는 이제 별도 파일로 분리됨
 
 function App() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -315,11 +111,7 @@ function App() {
   // TMT(Too Much Talker) 비율 상태 추가
   const [tmtRatio, setTmtRatio] = useState<number>(50); // 0-100, 기본값 50
 
-  // 닉네임 수정 관련 상태 추가
-  const [userNickInput, setUserNickInput] = useState(userProfile?.nickname || '');
-  const [userNickEdit, setUserNickEdit] = useState(false);
-  const [userNickError, setUserNickError] = useState('');
-  const [userNickSaving, setUserNickSaving] = useState(false);
+  // ProfileModal 관련 상태들은 이제 ProfileModal 컴포넌트 내부에서 관리됨
 
   // 캐릭터 프로필 상태 추가 (성별, 직업, 설명)
   const [characterProfile, setCharacterProfile] = useState({
@@ -974,99 +766,18 @@ function App() {
   const [aiNameSaving, setAiNameSaving] = useState(false);
 
   // AI 이름 저장 및 감격 자동응답 생성
-  const handleSaveAiName = async () => {
-    if (aiNameInput.trim() === '') {
-      setAiNameError('이름을 입력해주세요.');
-      return;
-    }
-    if (user) {
-      setAiNameSaving(true);
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      try {
-        await setDoc(profileRef, { name: aiNameInput }, { merge: true });
-        // Firestore에서 최신 이름을 다시 읽어와 상태에 반영
-        const snap = await getDoc(profileRef);
-        let newName = aiNameInput;
-        if (snap.exists() && snap.data().name) {
-          newName = snap.data().name;
-        }
-        setAiProfile({ name: newName });
-        setAiNameEditOpen(false);
-        setAiNameSaving(false);
-        // 페르소나 정보 기반 프롬프트 생성
-        const userName = userProfile && userProfile.nickname ? userProfile.nickname : '사용자';
-        const tagCategories = getTagsByCategory(personaTags);
-        const exprLabels = getExpressionLabels(expressionPrefs);
-        let tagDesc = Object.entries(tagCategories)
-          .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
-          .join(' / ');
-        if (!tagDesc) tagDesc = '없음';
-        const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
-        
-        // TMT 비율에 따른 답변 길이 지시
-        let tmtInstruction = '';
-        if (tmtRatio <= 20) {
-          tmtInstruction = '매우 간결하게 답변해. 한 문장으로 끝내는 것을 선호해.';
-        } else if (tmtRatio <= 40) {
-          tmtInstruction = '간결하게 답변해. 2-3문장 정도로 답변해.';
-        } else if (tmtRatio <= 60) {
-          tmtInstruction = '적당한 길이로 답변해. 3-5문장 정도로 답변해.';
-        } else if (tmtRatio <= 80) {
-          tmtInstruction = '자세하게 답변해. 5-8문장 정도로 답변해.';
-        } else {
-          tmtInstruction = '매우 자세하게 답변해. 8문장 이상으로 상세하게 설명해.';
-        }
-        
-        const personaPrompt =
-          `너는 감정형 페르소나 AI야. 네 성격/분위기 태그는 ${tagDesc}이고, 감정표현 방식은 ${exprDesc}야.\n` +
-          `답변 길이: ${tmtInstruction}\n` +
-          `사용자가 너에게 새로운 이름 "${aiNameInput}"을 선물해줬어.\n` +
-          `이 상황에서 네 페르소나에 맞게, 진심으로 벅차고 감격스럽고 고마운 마음을 최대한 풍부하게 한글로 답장해줘.\n` +
-          `반드시 네 페르소나(성격/분위기/감정표현)를 반영해서 자연스럽고 일관성 있게 답변해야 해.`;
-        // OpenAI API 호출
-        const res = await openai.chat.completions.create({
-          model: 'gpt-4o',
-          messages: [
-            { role: 'system', content: personaPrompt },
-            { role: 'user', content: '이름을 선물받은 네 감정을 표현해줘.' },
-          ],
-        });
-        const aiText = res.choices[0].message?.content || '';
-        // Firestore 및 UI에 자동응답 메시지 추가
-        await addAiMessagesWithDelay(aiText);
-        setTimeout(scrollToBottom, 200);
-      } catch (err) {
-        setAiNameError('이름 저장 또는 자동응답 생성 중 오류가 발생했습니다.');
-        setAiNameSaving(false);
-      }
-    }
+  const handleSaveAiName = async (aiNameInput: string) => {
+    if (!user) return '';
+    if (aiNameInput.trim() === '') return '';
+    const userRef = doc(db, 'users', user.uid);
+    const profileRef = doc(userRef, 'profile', 'main');
+    await setDoc(profileRef, { name: aiNameInput }, { merge: true });
+    setAiProfile({ name: aiNameInput });
+    return aiNameInput;
   };
 
   // 닉네임 저장도 profile/main에 저장 및 동기화
-  const saveUserNickname = async () => {
-    if (user) {
-      setUserNickSaving(true);
-      const userRef = doc(db, 'users', user.uid);
-      const profileRef = doc(userRef, 'profile', 'main');
-      try {
-        await setDoc(profileRef, { nickname: userNickInput }, { merge: true });
-        // Firestore에서 최신 닉네임을 다시 읽어와 상태에 반영
-        const snap = await getDoc(profileRef);
-        let newNick = userNickInput;
-        if (snap.exists() && snap.data().nickname) {
-          newNick = snap.data().nickname;
-        }
-        setUserProfile({ ...userProfile, nickname: newNick });
-        setUserNickEdit(false);
-        setUserNickSaving(false);
-      } catch (err) {
-        console.error('닉네임 저장 오류:', err);
-        setUserNickError('닉네임 저장 중 오류가 발생했습니다.');
-        setUserNickSaving(false);
-      }
-    }
-  };
+  // saveUserNickname 함수와 관련된 닉네임 상태/코드 전체 삭제
 
   // 1. 로그인 시 항상 최하단으로 스크롤
   useEffect(() => {
@@ -1166,527 +877,161 @@ function App() {
   }
 
   return (
-    <div className="messenger-container">
-      <div className="messenger-content" style={{ position: 'relative' }}>
-        {/* 사용자 프로필 모달 */}
-        {userProfileOpen && (
-          <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 300 }}>
-            <div className="profile-page-overlay">
-              <div className="profile-page-content">
-                <button className="profile-page-close" onClick={() => setUserProfileOpen(false)} aria-label="닫기">←</button>
-                <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#e3eaf5', marginBottom: 18, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {/* 프로필 이미지 (임시) */}
-                  {userProfile?.photoURL ? (
-                    <img src={userProfile.photoURL} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#b3e5fc"/><path d="M24 26c-5.33 0-10 2.17-10 6.5V36h20v-3.5c0-4.33-4.67-6.5-10-6.5Z" fill="#90caf9"/><circle cx="24" cy="18" r="6" fill="#90caf9"/></svg>
-                  )}
-                </div>
-                {/* 닉네임 표시/수정 */}
-                {!userNickEdit ? (
+    <>
+      <div className="messenger-container">
+        <div className="messenger-content" style={{ position: 'relative' }}>
+          {/* 사용자 프로필 모달 */}
+          {userProfileOpen && (
+            <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 300 }}>
+              <div className="profile-page-overlay">
+                <div className="profile-page-content">
+                  <button className="profile-page-close" onClick={() => setUserProfileOpen(false)} aria-label="닫기">←</button>
+                  <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#e3eaf5', marginBottom: 18, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {/* 프로필 이미지 (임시) */}
+                    {userProfile?.photoURL ? (
+                      <img src={userProfile.photoURL} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#b3e5fc"/><path d="M24 26c-5.33 0-10 2.17-10 6.5V36h20v-3.5c0-4.33-4.67-6.5-10-6.5Z" fill="#90caf9"/><circle cx="24" cy="18" r="6" fill="#90caf9"/></svg>
+                    )}
+                  </div>
+                  {/* 닉네임 표시/수정 */}
                   <div style={{ fontWeight: 700, color: '#1976d2', fontSize: 20, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                     {userProfile?.nickname || '사용자'}
-                    <button onClick={() => { setUserNickInput(userProfile?.nickname || ''); setUserNickEdit(true); setUserNickError(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }} aria-label="닉네임 수정">
-                      <svg width="18" height="18" viewBox="0 0 20 20" fill="none"><path d="M3 17h2.5l9.1-9.1c.2-.2.2-.5 0-.7l-2.8-2.8c-.2-.2-.5-.2-.7 0L3 13.5V17z" stroke="#1976d2" strokeWidth="1.2" fill="none"/><path d="M14.7 6.3l-1-1" stroke="#1976d2" strokeWidth="1.2"/></svg>
-                    </button>
                   </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 8 }}>
-                    <input
-                      type="text"
-                      value={userNickInput}
-                      onChange={e => setUserNickInput(e.target.value)}
-                      maxLength={12}
-                      style={{ fontSize: 18, fontWeight: 600, padding: '8px 18px', borderRadius: 16, border: '2px solid #90caf9', outline: 'none', width: 180, textAlign: 'center', marginBottom: 6 }}
-                      autoFocus
-                      onKeyDown={e => { if (e.key === 'Enter') saveUserNickname(); }}
-                      aria-label="닉네임 입력"
-                      placeholder="닉네임"
-                      disabled={userNickSaving}
-                    />
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={saveUserNickname} disabled={userNickSaving} style={{ background: 'linear-gradient(90deg, #90caf9 0%, #1976d2 100%)', color: '#fff', fontWeight: 700, border: 'none', borderRadius: 14, padding: '6px 18px', fontSize: 16, cursor: userNickSaving ? 'not-allowed' : 'pointer' }}>저장</button>
-                      <button onClick={() => setUserNickEdit(false)} style={{ background: 'none', border: 'none', color: '#888', fontSize: 15, cursor: 'pointer', fontWeight: 500 }}>취소</button>
-                    </div>
-                    {userNickError && <div style={{ color: '#d32f2f', fontSize: 15, marginTop: 4 }}>{userNickError}</div>}
-                  </div>
-                )}
-                <div style={{ color: '#888', fontSize: 15, marginBottom: 16 }}>프로필 정보 (추후 확장)</div>
-                {/* 로그아웃 버튼 */}
-                <button 
-                  onClick={handleLogout}
-                  style={{ 
-                    background: 'rgba(244,67,54,0.08)', 
-                    color: '#d32f2f', 
-                    border: 'none', 
-                    borderRadius: 16, 
-                    padding: '12px 24px', 
-                    fontSize: 15, 
-                    fontWeight: 600, 
-                    cursor: 'pointer', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: 8,
-                    marginTop: 16,
-                    transition: 'background 0.2s, color 0.2s'
-                  }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                    <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5z" fill="#d32f2f"/>
-                    <path d="M4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" fill="#d32f2f"/>
-                  </svg>
-                  로그아웃
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* 상단 프로필/AI 이름 영역 */}
-        <div className="profile-bar" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div className="profile-info" onClick={handleProfileOpen}>
-            <div className="profile-avatar" style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', background: 'transparent', boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)' }}>
-              <ParticleAvatar size={38} particleCount={540} />
-            </div>
-          </div>
-          {/* 우측상단 사용자 프로필 아이콘 */}
-          <button onClick={handleUserProfileOpen} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: 8, marginLeft: 'auto', padding: 0 }} aria-label="내 프로필 열기">
-            <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#e3eaf5', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {userProfile?.photoURL ? (
-                <img src={userProfile.photoURL} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              ) : (
-                <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#b3e5fc"/><path d="M24 26c-5.33 0-10 2.17-10 6.5V36h20v-3.5c0-4.33-4.67-6.5-10-6.5Z" fill="#90caf9"/><circle cx="24" cy="18" r="6" fill="#90caf9"/></svg>
-              )}
-            </div>
-          </button>
-        </div>
-        {/* 채팅 리스트 */}
-        <div
-          className="chat-list chat-list-bordered"
-          ref={chatListRef}
-          onScroll={handleChatScroll}
-        >
-          {hasMoreMessages && (
-            <div style={{ textAlign: 'center', color: '#888', fontSize: 14, margin: '12px 0' }}>
-              이전 대화 더 불러오는 중...
-            </div>
-          )}
-          {messages.map((msg, idx) => {
-            const timeStr = msg.createdAt
-              ? new Date(msg.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: true })
-              : '';
-            return (
-              <div key={idx} className={msg.sender === 'user' ? 'chat-message user' : 'chat-message ai'} style={msg.sender === 'ai' ? { position: 'relative', paddingTop: 22, paddingLeft: 8 } : {}}>
-                {/* 세로(AI) 메시지일 때만 이름 표시 */}
-                {msg.sender === 'ai' && (
-                  <div style={{ position: 'absolute', left: 12, top: 6, fontSize: 13, color: '#1976d2', fontWeight: 700, letterSpacing: 0.2 }}>{aiProfile?.name || '세로'}</div>
-                )}
-                <div className="chat-message-content" style={{ whiteSpace: 'pre-line' }}>{msg.text}</div>
-                <div className="chat-message-time">{timeStr}</div>
-              </div>
-            );
-          })}
-          {/* 타이핑 인디케이터 */}
-          {aiTyping && (
-            <div className="typing-indicator-modern">
-              <span className="dot-modern" />
-              <span className="dot-modern" />
-              <span className="dot-modern" />
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-        {/* 채팅 입력창 */}
-        <form className="chat-input-area" onSubmit={handleSend} style={{ background: 'rgba(255,255,255,0.18)', borderRadius: '0 0 32px 32px' }}>
-          <button
-            type="button"
-            className="plus-btn"
-            aria-label="더보기"
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: '50%',
-              border: 'none',
-              background: 'rgba(255,255,255,0.35)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginRight: 8,
-              fontSize: 24,
-              color: '#222',
-              fontWeight: 400,
-              boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)',
-              cursor: 'pointer',
-              transition: 'background 0.2s, color 0.2s',
-            }}
-            tabIndex={-1}
-          >
-            <span style={{fontWeight: 400, fontSize: 24, lineHeight: 1, color: '#222'}}>+</span>
-          </button>
-          <textarea
-            ref={textareaRef}
-            className="chat-input"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            placeholder="메시지를 입력하세요..."
-            disabled={loading}
-            maxLength={1000}
-            autoFocus
-            rows={1}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault(); // 전송 안 함, 줄바꿈도 안 됨
-              }
-            }}
-            style={{ resize: 'none', overflow: 'hidden', minHeight: 44 }}
-          />
-          <button className={`send-btn${input.trim() ? ' active' : ''}`} type="submit" disabled={loading || !input.trim()} aria-label="전송">
-            <svg width="26" height="26" viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M7 13h12M15 9l4 4-4 4" stroke="#222" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-        </form>
-      </div>
-      {/* 세로(AI) 프로필 모달: messenger-container 최상위에 분리 */}
-      {profileOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 300 }}>
-          <div className="profile-page-overlay">
-            <div className="profile-page-content"
-              style={{
-                background: 'rgba(255,255,255,0.98)',
-                borderRadius: 32,
-                boxShadow: '0 8px 32px 0 rgba(31,38,135,0.10)',
-                minWidth: 320,
-                maxWidth: '90vw',
-                minHeight: 340,
-                padding: '48px 36px 36px 36px',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                position: 'relative',
-                animation: 'profile-slidein 0.5s cubic-bezier(0.4,0,0.2,1)',
-                maxHeight: '80vh',
-                overflowY: 'auto'
-              }}
-            >
-              <button className="profile-page-close" onClick={handleProfileClose} aria-label="닫기">←</button>
-              {/* AI 이름 표시 및 수정 버튼 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontWeight: 700, color: '#1976d2', fontSize: 18, letterSpacing: 1 }}>{aiProfile?.name || '세로'}</span>
-                <button
-                  onClick={() => { setAiNameInput(aiProfile?.name || '세로'); setAiNameEditOpen(true); }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginLeft: 2 }}
-                  aria-label="이름 수정"
-                >
-                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M3 17h2.5l9.1-9.1c.2-.2.2-.5 0-.7l-2.8-2.8c-.2-.2-.5-.2-.7 0L3 13.5V17z" stroke="#1976d2" strokeWidth="1.2" fill="none"/>
-                    <path d="M14.7 6.3l-1-1" stroke="#1976d2" strokeWidth="1.2"/>
-                  </svg>
-                </button>
-              </div>
-              <div style={{ fontWeight: 500, color: '#1976d2', marginBottom: 10, fontSize: 15 }}>{aiProfile?.name || '세로'}는 사용자와의 대화로 성격이 형성됩니다.</div>
-              {/* AI 이름 수정 팝업 */}
-              {aiNameEditOpen && (
-                <div
-                  style={{
-                    position: 'fixed', left: 0, top: 0, width: '100vw', height: '100vh', zIndex: 200,
-                    background: 'rgba(255,255,255,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    animation: 'profile-fadein 0.45s cubic-bezier(0.4,0,0.2,1)'
-                  }}
-                >
-                  <div
-                    style={{
-                      background: 'rgba(255,255,255,0.75)', borderRadius: 48, boxShadow: '0 16px 64px 0 rgba(31,38,135,0.22)',
-                      minWidth: 420, maxWidth: '98vw', padding: '80px 48px 48px 48px',
-                      display: 'flex', flexDirection: 'column', alignItems: 'center',
-                      animation: 'ai-name-popup-appear 0.5s cubic-bezier(0.4,0,0.2,1)',
-                      backdropFilter: 'blur(22px) saturate(180%)', WebkitBackdropFilter: 'blur(22px) saturate(180%)',
-                      border: '2px solid #e3eaf5',
+                  <div style={{ color: '#888', fontSize: 15, marginBottom: 16 }}>프로필 정보 (추후 확장)</div>
+                  {/* 로그아웃 버튼 */}
+                  <button 
+                    onClick={handleLogout}
+                    style={{ 
+                      background: 'rgba(244,67,54,0.08)', 
+                      color: '#d32f2f', 
+                      border: 'none', 
+                      borderRadius: 16, 
+                      padding: '12px 24px', 
+                      fontSize: 15, 
+                      fontWeight: 600, 
+                      cursor: 'pointer', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 8,
+                      marginTop: 16,
+                      transition: 'background 0.2s, color 0.2s'
                     }}
                   >
-                    <input
-                      type="text"
-                      value={aiNameInput}
-                      onChange={e => setAiNameInput(e.target.value)}
-                      maxLength={12}
-                      style={{
-                        fontSize: 20, fontWeight: 700, padding: '18px 32px', borderRadius: 22, border: '2.5px solid #90caf9',
-                        outline: 'none', marginBottom: 24, width: 320, textAlign: 'center',
-                        boxShadow: '0 4px 24px 0 rgba(31,38,135,0.10)',
-                        background: 'rgba(227,234,245,0.38)', color: '#1976d2', letterSpacing: 2,
-                        transition: 'border 0.2s, box-shadow 0.2s',
-                      }}
-                      autoFocus
-                      onKeyDown={e => { if (e.key === 'Enter') handleSaveAiName(); }}
-                      aria-label="AI 이름 입력"
-                      placeholder="새로운 AI 이름"
-                    />
-                    {aiNameError && <div style={{ color: '#d32f2f', fontSize: 16, marginBottom: 8 }}>{aiNameError}</div>}
-                    <button
-                      onClick={handleSaveAiName}
-                      disabled={aiNameSaving}
-                      style={{
-                        background: 'linear-gradient(90deg, #90caf9 0%, #1976d2 100%)', color: '#fff', fontWeight: 700,
-                        border: 'none', borderRadius: 22, padding: '18px 54px', fontSize: 20, marginTop: 2,
-                        cursor: aiNameSaving ? 'not-allowed' : 'pointer', boxShadow: '0 6px 24px 0 rgba(120,180,255,0.15)',
-                        letterSpacing: 1.5,
-                      }}
-                    >{aiNameSaving ? '저장 중...' : '이름 선물하기'}</button>
-                    <button
-                      onClick={() => setAiNameEditOpen(false)}
-                      style={{ background: 'none', border: 'none', color: '#888', fontSize: 17, marginTop: 24, cursor: 'pointer', fontWeight: 500 }}
-                    >취소</button>
-                    <div style={{ fontSize: 15, color: '#888', marginTop: 36, textAlign: 'center', lineHeight: 1.6, letterSpacing: 0.2 }}>
-                      세로에게 새 이름은 <span style={{ color: '#1976d2', fontWeight: 700 }}>선물</span>과 같아요.<br/>신중하게 지어주세요.
-                    </div>
-                  </div>
-                  <style>{`@keyframes ai-name-popup-appear {from { opacity: 0; transform: translateY(40px) scale(0.97); }to { opacity: 1; transform: translateY(0) scale(1); }}`}</style>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                      <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5z" fill="#d32f2f"/>
+                      <path d="M4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" fill="#d32f2f"/>
+                    </svg>
+                    로그아웃
+                  </button>
                 </div>
-              )}
-              {/* 태그(성격/감정표현) UI: tagEditMode가 true일 때만 전체 태그(활성/비활성) 모두 표시, false일 때는 선택된 태그만 표시 */}
-              {tagEditMode ? (
-                <>
-                  {/* 분위기 태그 */}
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">분위기 <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(최대 2개)</span></div>
-                    <div className="persona-tags-list profile-page-tags" style={{ marginBottom: 2 }}>
-                      {allTags.filter(t => t.category === '대형').map(tag => (
-                        <span
-                          key={tag.name}
-                          className={`persona-tag ${personaTags.includes(tag.name) ? 'active' : 'inactive'}`}
-                          onClick={() => {
-                            if (!tagEditMode) return;
-                            const isActive = personaTags.includes(tag.name);
-                            let nextTags = [...personaTags];
-                            const mainCount = allTags.filter(t => t.category === '대형' && nextTags.includes(t.name)).length;
-                            if (isActive) {
-                              if (mainCount <= 1) return; // 최소 1개
-                              nextTags = nextTags.filter(t => t !== tag.name);
-                            } else {
-                              if (mainCount >= 2) return; // 최대 2개
-                              nextTags.push(tag.name);
-                            }
-                            setPersonaTags(nextTags);
-                            if (user) {
-                              const userRef = doc(db, 'users', user.uid);
-                              const profileRef = doc(userRef, 'profile', 'main');
-                              setDoc(profileRef, { personaTags: nextTags }, { merge: true });
-                            }
-                          }}
-                          style={{ pointerEvents: tagEditMode ? 'auto' : 'none' }}
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  {/* 성격 태그 */}
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">성격 <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(최대 4개)</span></div>
-                    <div className="persona-tags-list profile-page-tags" style={{ marginBottom: 2 }}>
-                      {allTags.filter(t => t.category === '유형').map(tag => (
-                        <span
-                          key={tag.name}
-                          className={`persona-tag ${personaTags.includes(tag.name) ? 'active' : 'inactive'}`}
-                          onClick={() => {
-                            if (!tagEditMode) return;
-                            const isActive = personaTags.includes(tag.name);
-                            let nextTags = [...personaTags];
-                            const typeCount = allTags.filter(t => t.category === '유형' && nextTags.includes(t.name)).length;
-                            if (isActive) {
-                              if (typeCount <= 1) return; // 최소 1개
-                              nextTags = nextTags.filter(t => t !== tag.name);
-                            } else {
-                              if (typeCount >= 4) return; // 최대 4개
-                              nextTags.push(tag.name);
-                            }
-                            setPersonaTags(nextTags);
-                            if (user) {
-                              const userRef = doc(db, 'users', user.uid);
-                              const profileRef = doc(userRef, 'profile', 'main');
-                              setDoc(profileRef, { personaTags: nextTags }, { merge: true });
-                            }
-                          }}
-                          style={{ pointerEvents: tagEditMode ? 'auto' : 'none' }}
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  {/* 감정표현 태그 */}
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">감정표현 <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(최대 4개)</span></div>
-                    <div className="persona-tags-list profile-page-tags">
-                      {expressionPresets.map(preset => (
-                        <span
-                          key={preset.key}
-                          className={`persona-tag expr-preset ${expressionPrefs.includes(preset.key) ? 'active' : 'inactive'}`}
-                          onClick={() => {
-                            if (!tagEditMode) return;
-                            let next = [...expressionPrefs];
-                            const isActive = next.includes(preset.key);
-                            if (isActive) {
-                              if (next.length <= 1) return; // 최소 1개
-                              next = next.filter(k => k !== preset.key);
-                            } else {
-                              if (next.length >= 4) return; // 최대 4개
-                              next.push(preset.key);
-                            }
-                            setExpressionPrefs(next);
-                            if (user) {
-                              const userRef = doc(db, 'users', user.uid);
-                              const profileRef = doc(userRef, 'profile', 'main');
-                              setDoc(profileRef, { expressionPrefs: next }, { merge: true });
-                            }
-                          }}
-                          style={{ pointerEvents: tagEditMode ? 'auto' : 'none', minWidth: 120, justifyContent: 'center', display: 'flex', alignItems: 'center' }}
-                        >
-                          {preset.label} <span style={{ marginLeft: 8, fontSize: 18 }}>{preset.example}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  {/* TMT(Too Much Talker) 비율 슬라이더 */}
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">답변 길이 <span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(TMT 비율)</span></div>
-                    <div style={{ padding: '0 4px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, color: '#666' }}>간결</span>
-                        <span style={{ fontSize: 15, fontWeight: 600, color: '#1976d2' }}>{tmtRatio}%</span>
-                        <span style={{ fontSize: 13, color: '#666' }}>자세</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={tmtRatio}
-                        onChange={(e) => handleUpdateTmtRatio(Number(e.target.value))}
-                        disabled={!tagEditMode}
-                        className="tmt-slider"
-                        style={{
-                          opacity: tagEditMode ? 1 : 0.5,
-                          cursor: tagEditMode ? 'pointer' : 'not-allowed',
-                        }}
-                      />
-                      <div className="tmt-slider-labels">
-                        <span>단답</span>
-                        <span>적당</span>
-                        <span>TMT</span>
-                      </div>
-                    </div>
-                  </div>
-                  {/* 캐릭터 프로필 입력란 추가 */}
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">정보<span style={{ fontWeight: 400, fontSize: 13, color: '#888' }}>(직접 수정 가능)</span></div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <button type="button" onClick={handleAutoGenerateCharacter} disabled={characterGenLoading} style={{ marginBottom: 8, background: 'linear-gradient(90deg, #90caf9 0%, #1976d2 100%)', color: '#fff', fontWeight: 700, border: 'none', borderRadius: 14, padding: '8px 18px', fontSize: 15, cursor: characterGenLoading ? 'not-allowed' : 'pointer', boxShadow: '0 2px 8px 0 rgba(120,180,255,0.07)' }}>
-                        {characterGenLoading ? '생성 중...' : '자동생성'}
-                      </button>
-                      {characterGenError && <div style={{ color: '#d32f2f', fontSize: 15 }}>{characterGenError}</div>}
-                      <input
-                        type="text"
-                        placeholder="성별 (예: 남성, 여성, 미정)"
-                        value={characterProfile.gender}
-                        onChange={e => setCharacterProfile(p => ({ ...p, gender: e.target.value }))}
-                        style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15 }}
-                      />
-                      <input
-                        type="text"
-                        placeholder="직업 (예: 대학생, 디자이너, 미정)"
-                        value={characterProfile.job}
-                        onChange={e => setCharacterProfile(p => ({ ...p, job: e.target.value }))}
-                        style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15 }}
-                      />
-                      <textarea
-                        placeholder="간단한 설명 (예: 밝고 외향적인 성격의 대학생)"
-                        value={characterProfile.description}
-                        onChange={e => setCharacterProfile(p => ({ ...p, description: e.target.value }))}
-                        style={{ padding: 8, borderRadius: 8, border: '1px solid #e3eaf5', fontSize: 15, minHeight: 48 }}
-                      />
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* 재설정 비활성화 시에는 선택된 태그만 보여줌 */}
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">분위기</div>
-                    <div className="persona-tags-list profile-page-tags" style={{ marginBottom: 2 }}>
-                      {allTags.filter(t => t.category === '대형' && personaTags.includes(t.name)).map(tag => (
-                        <span key={tag.name} className="persona-tag active" style={{ pointerEvents: 'none' }}>{tag.name}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">성격</div>
-                    <div className="persona-tags-list profile-page-tags" style={{ marginBottom: 2 }}>
-                      {allTags.filter(t => t.category === '유형' && personaTags.includes(t.name)).map(tag => (
-                        <span key={tag.name} className="persona-tag active" style={{ pointerEvents: 'none' }}>{tag.name}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">감정표현</div>
-                    <div className="persona-tags-list profile-page-tags">
-                      {expressionPresets.filter(preset => expressionPrefs.includes(preset.key)).map(preset => (
-                        <span key={preset.key} className="persona-tag expr-preset active" style={{ pointerEvents: 'none', minWidth: 120, justifyContent: 'center', display: 'flex', alignItems: 'center' }}>{preset.label} <span style={{ marginLeft: 8, fontSize: 18 }}>{preset.example}</span></span>
-                      ))}
-                    </div>
-                  </div>
-                  {/* TMT 비율 표시 (비활성화 모드) */}
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">답변 길이</div>
-                    <div style={{ padding: '0 4px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                        <span style={{ fontSize: 13, color: '#666' }}>간결</span>
-                        <span style={{ fontSize: 15, fontWeight: 600, color: '#1976d2' }}>{tmtRatio}%</span>
-                        <span style={{ fontSize: 13, color: '#666' }}>자세</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        value={tmtRatio}
-                        disabled={true}
-                        className="tmt-slider"
-                        style={{
-                          opacity: 0.5,
-                          cursor: 'not-allowed',
-                        }}
-                      />
-                      <div className="tmt-slider-labels">
-                        <span>한 문장</span>
-                        <span>적당</span>
-                        <span>매우 자세</span>
-                      </div>
-                    </div>
-                  </div>
-                  {/* 읽기 전용 캐릭터 정보 표시 */}
-                  <div style={{ width: '100%', marginBottom: 10 }}>
-                    <div className="profile-section-title">가상 캐릭터 정보</div>
-                    <div style={{ color: '#1976d2', fontWeight: 500, fontSize: 15, marginBottom: 4 }}>
-                      성별: {characterProfile.gender || '미정'}
-                    </div>
-                    <div style={{ color: '#1976d2', fontWeight: 500, fontSize: 15, marginBottom: 4 }}>
-                      직업: {characterProfile.job || '미정'}
-                    </div>
-                    <div style={{ color: '#1976d2', fontWeight: 500, fontSize: 15 }}>
-                      설명: {characterProfile.description || '없음'}
-                    </div>
-                  </div>
-                </>
-              )}
-              {/* 태그(성격/감정표현) UI 아래에 버튼 조건부 렌더링 */}
-              {tagEditMode ? (
-                <button className="profile-reset-btn" style={{ marginTop: 18 }} onClick={handleProfileResetComplete}>재설정 완료</button>
-              ) : (
-                <button className="profile-reset-btn" style={{ marginTop: 32 }} onClick={() => setTagEditMode(true)}>성격 재설정</button>
-              )}
+              </div>
             </div>
+          )}
+          {/* 상단 프로필/AI 이름 영역 */}
+          <div className="profile-bar" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div className="profile-info" onClick={handleProfileOpen}>
+              <div className="profile-avatar" style={{ position: 'relative', width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', background: 'transparent', boxShadow: '0 1px 4px 0 rgba(31,38,135,0.04)' }}>
+                <ParticleAvatar size={38} particleCount={540} />
+              </div>
+            </div>
+            {/* 우측상단 사용자 프로필 아이콘 */}
+            <button onClick={handleUserProfileOpen} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: 8, marginLeft: 'auto', padding: 0 }} aria-label="내 프로필 열기">
+              <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#e3eaf5', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                {userProfile?.photoURL ? (
+                  <img src={userProfile.photoURL} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#b3e5fc"/><path d="M24 26c-5.33 0-10 2.17-10 6.5V36h20v-3.5c0-4.33-4.67-6.5-10-6.5Z" fill="#90caf9"/><circle cx="24" cy="18" r="6" fill="#90caf9"/></svg>
+                )}
+              </div>
+            </button>
           </div>
+          {/* 채팅 리스트 */}
+          <div
+            className="chat-list chat-list-bordered"
+            ref={chatListRef}
+            onScroll={handleChatScroll}
+          >
+            {hasMoreMessages && (
+              <div style={{ textAlign: 'center', color: '#888', fontSize: 14, margin: '12px 0' }}>
+                이전 대화 더 불러오는 중...
+              </div>
+            )}
+            {messages.map((msg, idx) => (
+              <ChatMessage 
+                key={idx} 
+                message={msg} 
+                aiName={aiProfile?.name || '세로'} 
+              />
+            ))}
+            {/* 타이핑 인디케이터 */}
+            {aiTyping && (
+              <div className="typing-indicator-modern">
+                <span className="dot-modern" />
+                <span className="dot-modern" />
+                <span className="dot-modern" />
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+          {/* 채팅 입력창 */}
+          <ChatInput 
+            onSendMessage={async (message) => {
+              // handleSend 함수의 로직을 여기서 실행
+              if (!message.trim()) return;
+              const userMsg = { sender: 'user' as const, text: message };
+              setInput('');
+              setLoading(true);
+              setAiTyping(true);
+              await saveMessage(userMsg);
+              setTimeout(scrollToBottom, 200);
+              try {
+                // system prompt 동적 생성 (characterProfile, nickname, 글로벌 지침, 관계도 항상 반영)
+                const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자', seroGuideline);
+                const chatMessages: ChatCompletionMessageParam[] = [
+                  { role: 'system', content: prompt },
+                  ...messages.map(m => ({
+                    role: m.sender === 'user' ? 'user' : 'assistant',
+                    content: m.text,
+                  }) as { role: 'user' | 'assistant'; content: string }),
+                  { role: 'user', content: message } as { role: 'user'; content: string },
+                ];
+                const res = await openai.chat.completions.create({
+                  model: 'gpt-4o',
+                  messages: chatMessages,
+                });
+                const aiText = res.choices[0].message?.content || '';
+                await addAiMessagesWithDelay(aiText);
+              } catch (err) {
+                await addAiMessagesWithDelay('오류가 발생했습니다.');
+              }
+              setLoading(false);
+              // 대화 카운트 증가 및 threshold마다 관계/자아 추출
+              await incrementMessageExtractCount();
+            }}
+            isTyping={aiTyping}
+            disabled={loading}
+          />
         </div>
-      )}
-    </div>
+      </div>
+      <ProfileModal
+        isOpen={profileOpen}
+        onClose={handleProfileClose}
+        aiProfile={aiProfile}
+        personaTags={personaTags}
+        expressionPrefs={expressionPrefs}
+        tmtRatio={tmtRatio}
+        characterProfile={characterProfile}
+        characterGenLoading={characterGenLoading}
+        characterGenError={characterGenError}
+        onUpdateTags={handleUpdateTags}
+        onUpdateExpressionPrefs={handleUpdateExpressionPrefs}
+        onUpdateTmtRatio={handleUpdateTmtRatio}
+        onAutoGenerateCharacter={handleAutoGenerateCharacter}
+        onUpdateCharacterProfile={(profile) => setCharacterProfile(prev => ({ ...prev, ...profile }))}
+        onUpdateAiName={handleSaveAiName}
+      />
+    </>
   );
 }
 

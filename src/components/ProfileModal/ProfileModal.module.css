@@ -1,0 +1,364 @@
+/* ProfileModal 컴포넌트 스타일 */
+.profilePageOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.profilePageContent {
+  background: white;
+  border-radius: 20px;
+  padding: 30px;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+}
+
+.profilePageClose {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+  padding: 5px;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s;
+}
+
+.profilePageClose:hover {
+  background-color: #f5f5f5;
+}
+
+.profileSection {
+  margin-bottom: 25px;
+}
+
+.profileSectionTitle {
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 12px;
+  font-size: 16px;
+}
+
+.sectionSubtitle {
+  font-weight: 400;
+  color: #666;
+  font-size: 14px;
+}
+
+.personaTagsList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.personaTag {
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid;
+  user-select: none;
+}
+
+.personaTag.active {
+  background: #1976d2;
+  color: white;
+  border-color: #1976d2;
+}
+
+.personaTag.inactive {
+  background: #f5f5f5;
+  color: #666;
+  border-color: #ddd;
+}
+
+.personaTag.inactive:hover {
+  background: #e3f2fd;
+  border-color: #1976d2;
+  color: #1976d2;
+}
+
+.personaTag.exprPreset {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.presetExample {
+  font-size: 11px;
+  opacity: 0.8;
+  margin-left: 4px;
+}
+
+.tmtSliderContainer {
+  margin-top: 10px;
+}
+
+.tmtSliderLabels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #666;
+}
+
+.tmtValue {
+  font-weight: 600;
+  color: #1976d2;
+  font-size: 16px;
+}
+
+.tmtSlider {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #e0e0e0;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+.tmtSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1976d2;
+  cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.tmtSlider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1976d2;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.tmtSlider.disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tmtSliderMarkers {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #999;
+  margin-top: 5px;
+}
+
+.characterInputs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.autoGenerateBtn {
+  background: #1976d2;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.autoGenerateBtn:hover:not(:disabled) {
+  background: #1565c0;
+}
+
+.autoGenerateBtn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.characterError {
+  color: #d32f2f;
+  font-size: 14px;
+  margin-top: 5px;
+}
+
+.characterInput {
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.characterInput:focus {
+  outline: none;
+  border-color: #1976d2;
+}
+
+.characterTextarea {
+  padding: 10px 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  font-size: 14px;
+  min-height: 80px;
+  resize: vertical;
+  font-family: inherit;
+  transition: border-color 0.2s;
+}
+
+.characterTextarea:focus {
+  outline: none;
+  border-color: #1976d2;
+}
+
+.characterInfo {
+  background: #f8f9fa;
+  padding: 15px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.characterInfo div {
+  margin-bottom: 5px;
+}
+
+.characterInfo div:last-child {
+  margin-bottom: 0;
+}
+
+.profileResetBtn {
+  background: #1976d2;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  width: 100%;
+  margin-top: 20px;
+  transition: background-color 0.2s;
+}
+
+.profileResetBtn:hover {
+  background: #1565c0;
+}
+
+/* AI 이름 수정 팝업 */
+.aiNamePopupOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.aiNamePopupContent {
+  background: white;
+  border-radius: 16px;
+  padding: 30px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+}
+
+.aiNameInput {
+  width: 100%;
+  padding: 12px 16px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 16px;
+  margin-bottom: 15px;
+  text-align: center;
+  transition: border-color 0.2s;
+}
+
+.aiNameInput:focus {
+  outline: none;
+  border-color: #1976d2;
+}
+
+.aiNameError {
+  color: #d32f2f;
+  font-size: 14px;
+  margin-bottom: 15px;
+}
+
+.aiNameSaveBtn {
+  background: #1976d2;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  margin-right: 10px;
+  transition: background-color 0.2s;
+}
+
+.aiNameSaveBtn:hover:not(:disabled) {
+  background: #1565c0;
+}
+
+.aiNameSaveBtn:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.aiNameCancelBtn {
+  background: #f5f5f5;
+  color: #666;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.aiNameCancelBtn:hover {
+  background: #e0e0e0;
+}
+
+.aiNameDescription {
+  margin-top: 20px;
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.highlight {
+  color: #1976d2;
+  font-weight: 600;
+} 

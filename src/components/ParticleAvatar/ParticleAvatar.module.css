@@ -1,0 +1,50 @@
+/* ParticleAvatar 컴포넌트 스타일 */
+.particleAvatar {
+  position: relative;
+  display: inline-block;
+}
+
+.canvas {
+  border-radius: 50%;
+  display: block;
+  cursor: pointer;
+  transition: box-shadow 0.35s, border 0.35s, background 0.35s;
+}
+
+.canvasNormal {
+  box-shadow: 0 1px 4px 0 rgba(31,38,135,0.04);
+  border: 2.5px solid #e3eaf5;
+  background: #fff;
+}
+
+.canvasActive {
+  box-shadow: 0 0 0 4px #b3e5fc, 0 0 16px 8px #90caf9cc, 0 2px 16px 0 #90caf9;
+  border: 2.5px solid #90caf9;
+  background: radial-gradient(circle at 50% 50%, #fff 60%, #e3f2fd 100%);
+  transition: box-shadow 0.35s cubic-bezier(.4,2,.2,1), border 0.35s, background 0.35s;
+}
+
+.outerGlow {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  border-radius: 50%;
+  background: radial-gradient(circle, #90caf9 0%, #90caf9 30%, transparent 70%);
+  opacity: 0.6;
+  animation: outer-glow-pulse 1.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+@keyframes outer-glow-pulse {
+  0%, 100% { 
+    opacity: 0.3; 
+    transform: scale(1); 
+  }
+  50% { 
+    opacity: 0.8; 
+    transform: scale(1.1); 
+  }
+} 
