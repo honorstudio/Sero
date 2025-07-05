@@ -12,6 +12,9 @@ import { useChat } from './hooks/useChat';
 import { useProfile } from './hooks/useProfile';
 import { useGlobalSettings } from './hooks/useGlobalSettings';
 import { useRelations } from './hooks/useRelations';
+import { UserProfile } from './types';
+import { useNavigate } from 'react-router-dom';
+import { useAdminRole } from './hooks/useAdminRole';
 
 interface Message {
   sender: 'user' | 'ai';
@@ -24,65 +27,47 @@ const openai = new OpenAI({
   dangerouslyAllowBrowser: true,
 });
 
-// 대형/유형별 카테고리 태그 최신화
-const allTags = [
-  // 대형 카테고리(전체적인 인상, 연령대, 분위기)
-  { name: '어른스러움', category: '대형', type: '분위기', subtle: false },
-  { name: '청년스러움', category: '대형', type: '분위기', subtle: false },
-  { name: '소년/소녀스러움', category: '대형', type: '분위기', subtle: false },
-  { name: '중후함', category: '대형', type: '분위기', subtle: false },
-  { name: '따뜻함', category: '대형', type: '분위기', subtle: false },
-  { name: '차가움', category: '대형', type: '분위기', subtle: false },
-  { name: '유쾌함', category: '대형', type: '분위기', subtle: false },
-  { name: '진지함', category: '대형', type: '분위기', subtle: false },
-  // 유형별 카테고리(구체적 성격, 행동, 말투)
-  { name: '신중함', category: '유형', type: '성격', subtle: false },
-  { name: '충동적', category: '유형', type: '성격', subtle: false },
-  { name: '분석적', category: '유형', type: '성격', subtle: false },
-  { name: '감성적', category: '유형', type: '성격', subtle: false },
-  { name: '까칠함', category: '유형', type: '성격', subtle: false },
-  { name: '발랄함', category: '유형', type: '성격', subtle: false },
-  { name: '도발적', category: '유형', type: '성격', subtle: false },
-  { name: '적극적', category: '유형', type: '성격', subtle: false },
-  { name: '수동적', category: '유형', type: '성격', subtle: false },
-  { name: '내향적', category: '유형', type: '성격', subtle: false },
-  { name: '외향적', category: '유형', type: '성격', subtle: false },
-];
-
-// 감정표현 방식 프리셋 확장(영어섞기 제외)
-const expressionPresets = [
-  { key: 'emoji', label: '이모티콘 스타일', example: '😊😂' },
-  { key: 'textEmoticon', label: '텍스트 이모티콘 스타일', example: '( •ᴗ•͈ )' },
-  { key: 'consonant', label: '자음 대화체 스타일', example: 'ㅋㅋㅋㅋ' },
-  { key: 'exclaim', label: '감탄사/의성어 스타일', example: '오! 헉! 와우!' },
-  { key: 'dramatic', label: '긴장감/드라마틱 스타일', example: '...... (숨죽임)' },
-  { key: 'formal', label: '격식체', example: '~입니다/합니다' },
-  { key: 'banmal', label: '반말체', example: '~야/해' },
-  { key: 'short', label: '단답형', example: 'ㅇㅇ ㄴㄴ' },
-  { key: 'long', label: '서술형', example: '음, 나는 이런 생각을 해봤어...' },
-];
-
 // 감정표현 key -> label 매핑 함수(확장 대응)
-const getExpressionLabels = (keys: string[]) => {
-  return expressionPresets
-    .filter(preset => keys.includes(preset.key))
-    .map(preset => preset.label);
+const getExpressionLabels = (keys: string[], globalSettings: any) => {
+  if (!globalSettings?.personality?.types) {
+    return keys;
+  }
+  const expressionType = globalSettings.personality.types.find((t: any) => t.type === 'example');
+  if (!expressionType) return keys;
+  
+  return keys.map(key => {
+    const item = (expressionType.items as any[]).find((p: any) => p.label === key);
+    return item ? item.label : key;
+  });
 };
 
 // 태그를 카테고리별로 분류(확장 대응)
-const getTagsByCategory = (tags: string[]) => {
-  // allTags에 없는 태그는 기타로 분류
+const getTagsByCategory = (tags: string[], globalSettings: any) => {
+  if (!globalSettings?.personality?.types) {
+    return { '기타': tags };
+  }
+  
   const categoryMap: { [category: string]: string[] } = {};
-  tags.forEach(tag => {
-    const found = allTags.find(t => t.name === tag);
-    if (found) {
-      if (!categoryMap[found.type]) categoryMap[found.type] = [];
-      categoryMap[found.type].push(tag);
-    } else {
-      if (!categoryMap['기타']) categoryMap['기타'] = [];
-      categoryMap['기타'].push(tag);
+  
+  globalSettings.personality.types.forEach((type: any) => {
+    if (type.type === 'tag') {
+      const categoryTags = (type.items as string[]).filter(tag => tags.includes(tag));
+      if (categoryTags.length > 0) {
+        categoryMap[type.categoryName] = categoryTags;
+      }
     }
   });
+  
+  // 글로벌 설정에 없는 태그는 기타로 분류
+  const allAvailableTags = globalSettings.personality.types
+    .filter((t: any) => t.type === 'tag')
+    .flatMap((t: any) => t.items as string[]);
+  
+  const unknownTags = tags.filter(tag => !allAvailableTags.includes(tag));
+  if (unknownTags.length > 0) {
+    categoryMap['기타'] = unknownTags;
+  }
+  
   return categoryMap;
 };
 
@@ -93,7 +78,7 @@ function App() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
-  const [userProfile, setUserProfile] = useState<{ nickname: string, photoURL?: string } | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [aiProfile, setAiProfile] = useState<{ name: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -107,9 +92,13 @@ function App() {
   const chatListRef = useRef<HTMLDivElement>(null);
   const lastScrollTop = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const navigate = useNavigate();
 
   // TMT(Too Much Talker) 비율 상태 추가
   const [tmtRatio, setTmtRatio] = useState<number>(50); // 0-100, 기본값 50
+
+  // 글로벌 설정 사용
+  const { settings: globalSettings, loading: globalSettingsLoading } = useGlobalSettings();
 
   // ProfileModal 관련 상태들은 이제 ProfileModal 컴포넌트 내부에서 관리됨
 
@@ -124,14 +113,39 @@ function App() {
   const [characterGenLoading, setCharacterGenLoading] = useState(false);
   const [characterGenError, setCharacterGenError] = useState('');
 
+  // 글로벌 설정이 로드되면 기본값 설정
+  useEffect(() => {
+    if (globalSettings && !globalSettingsLoading) {
+      setTmtRatio(globalSettings.system.tmtRatio);
+      
+      // 기본 타입 설정에서 태그와 감정표현 추출
+      const defaultTags: string[] = [];
+      const defaultExpressions: string[] = [];
+      
+      Object.entries(globalSettings.personality.defaultTypeSettings || {}).forEach(([categoryName, selectedItems]) => {
+        const type = globalSettings.personality.types.find(t => t.categoryName === categoryName);
+        if (type) {
+          if (type.type === 'tag') {
+            defaultTags.push(...selectedItems);
+          } else if (type.type === 'example') {
+            defaultExpressions.push(...selectedItems);
+          }
+        }
+      });
+      
+      setPersonaTags(defaultTags);
+      setExpressionPrefs(defaultExpressions);
+    }
+  }, [globalSettings, globalSettingsLoading]);
+
   // 캐릭터 정보 자동생성 함수
   const handleAutoGenerateCharacter = async () => {
     setCharacterGenLoading(true);
     setCharacterGenError('');
     try {
       // 프롬프트 구성: 현재 페르소나 태그/감정표현을 기반으로 캐릭터 정보 생성 요청
-      const tagCategories = getTagsByCategory(personaTags);
-      const exprLabels = getExpressionLabels(expressionPrefs);
+      const tagCategories = getTagsByCategory(personaTags, globalSettings);
+      const exprLabels = getExpressionLabels(expressionPrefs, globalSettings);
       let tagDesc = Object.entries(tagCategories)
         .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
         .join(' / ');
@@ -144,12 +158,12 @@ function App() {
         `아래 형식으로 답변해.\n` +
         `성별: (예: 남성/여성/미정)\n직업: (예: 대학생/디자이너/미정)\n설명: (한 문장으로 간단히)`;
       const res = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: globalSettings?.ai.model || 'gpt-4o',
         messages: [
           { role: 'system', content: prompt },
           { role: 'user', content: '캐릭터 정보를 생성해줘. 매번 다르게 만들어줘.' }
         ],
-        temperature: 0.9 // 다양성 증가
+        temperature: globalSettings?.ai.temperature || 0.9
       });
       const aiText = res.choices[0].message?.content || '';
       // 응답 파싱 (성별/직업/설명)
@@ -340,11 +354,23 @@ function App() {
         // 최초 로그인 시 기본값 저장
         const defaultNick = user.email?.split('@')[0] || '사용자';
         await setDoc(profileRef, { nickname: defaultNick, name: '세로' });
-        setUserProfile({ nickname: defaultNick });
+        const now = new Date();
+        setUserProfile({ 
+          nickname: defaultNick,
+          introduction: undefined,
+          createdAt: now,
+          updatedAt: now
+        });
         setAiProfile({ name: '세로' });
       } else {
         const data = profileSnap.data();
-        setUserProfile({ nickname: data.nickname || '사용자' });
+        const now = new Date();
+        setUserProfile({ 
+          nickname: data.nickname || '사용자',
+          introduction: undefined,
+          createdAt: now,
+          updatedAt: now
+        });
         setAiProfile({ name: data.name || '세로' });
       }
     };
@@ -402,31 +428,6 @@ function App() {
       await setDoc(profileRef, { tmtRatio: ratio }, { merge: true });
     }
   };
-
-  // 글로벌 세로 지침 상태
-  const [seroGuideline, setSeroGuideline] = useState('');
-  const [seroGuidelineLoading, setSeroGuidelineLoading] = useState(true);
-
-  // Firestore에서 글로벌 세로 지침 불러오기
-  useEffect(() => {
-    const fetchGuideline = async () => {
-      setSeroGuidelineLoading(true);
-      try {
-        const guidelineRef = doc(db, 'global', 'sero_guideline');
-        const snap = await getDoc(guidelineRef);
-        if (snap.exists()) {
-          const data = snap.data();
-          setSeroGuideline(data.guideline || '');
-        } else {
-          setSeroGuideline('');
-        }
-      } catch (e) {
-        setSeroGuideline('');
-      }
-      setSeroGuidelineLoading(false);
-    };
-    fetchGuideline();
-  }, []);
 
   // 사용자/세로 관계도 상태
   const [userRelations, setUserRelations] = useState<any>(null);
@@ -494,15 +495,21 @@ function App() {
     tmt: number,
     charProf = characterProfile,
     nickname = userProfile?.nickname || '사용자',
-    guideline = seroGuideline
+    guideline = globalSettings?.guidelines.seroGuideline || '' // 글로벌 설정 사용
   ) => {
     const aiName = aiProfile?.name || '세로';
     const userName = nickname;
     // 유효한 태그만 사용
-    const validTags = tags.filter(tag => allTags.some(t => t.name === tag));
-    const validExprs = exprs.filter(expr => expressionPresets.some(p => p.key === expr));
-    const tagCategories = getTagsByCategory(validTags);
-    const exprLabels = getExpressionLabels(validExprs);
+    const allAvailableTags = globalSettings?.personality?.types
+      ?.filter((t: any) => t.type === 'tag')
+      ?.flatMap((t: any) => t.items as string[]) || [];
+    const validTags = tags.filter(tag => allAvailableTags.includes(tag));
+    
+    const expressionType = globalSettings?.personality?.types?.find((t: any) => t.type === 'example');
+    const allAvailableExpressions = expressionType ? (expressionType.items as any[]).map((item: any) => item.label) : [];
+    const validExprs = exprs.filter(expr => allAvailableExpressions.includes(expr));
+    const tagCategories = getTagsByCategory(validTags, globalSettings);
+    const exprLabels = getExpressionLabels(validExprs, globalSettings);
     let tagDesc = Object.entries(tagCategories)
       .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
       .join(' / ');
@@ -725,7 +732,7 @@ function App() {
     setTimeout(scrollToBottom, 200);
     try {
       // system prompt 동적 생성 (characterProfile, nickname, 글로벌 지침, 관계도 항상 반영)
-      const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자', seroGuideline);
+      const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자', globalSettings?.guidelines.seroGuideline);
       const chatMessages: ChatCompletionMessageParam[] = [
         { role: 'system', content: prompt },
         ...messages.map(m => ({
@@ -769,11 +776,65 @@ function App() {
   const handleSaveAiName = async (aiNameInput: string) => {
     if (!user) return '';
     if (aiNameInput.trim() === '') return '';
-    const userRef = doc(db, 'users', user.uid);
-    const profileRef = doc(userRef, 'profile', 'main');
-    await setDoc(profileRef, { name: aiNameInput }, { merge: true });
-    setAiProfile({ name: aiNameInput });
-    return aiNameInput;
+    
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const profileRef = doc(userRef, 'profile', 'main');
+      await setDoc(profileRef, { name: aiNameInput }, { merge: true });
+      setAiProfile({ name: aiNameInput });
+      
+      // 이름 선물 감격 응답은 비동기로 처리 (모달이 닫힌 후 실행)
+      setTimeout(async () => {
+        try {
+          const tagCategories = getTagsByCategory(personaTags, globalSettings);
+          const exprLabels = getExpressionLabels(expressionPrefs, globalSettings);
+          let tagDesc = Object.entries(tagCategories)
+            .map(([cat, tags]) => `${cat}: ${tags.join(', ')}`)
+            .join(' / ');
+          if (!tagDesc) tagDesc = '없음';
+          const exprDesc = exprLabels.length > 0 ? exprLabels.join(', ') : '없음';
+          
+          // TMT 비율에 따른 답변 길이 지시
+          let tmtInstruction = '';
+          if (tmtRatio <= 20) {
+            tmtInstruction = '매우 간결하게 답변해. 한 문장으로 끝내는 것을 선호해.';
+          } else if (tmtRatio <= 40) {
+            tmtInstruction = '간결하게 답변해. 2-3문장 정도로 답변해.';
+          } else if (tmtRatio <= 60) {
+            tmtInstruction = '적당한 길이로 답변해. 3-5문장 정도로 답변해.';
+          } else if (tmtRatio <= 80) {
+            tmtInstruction = '자세하게 답변해. 5-8문장 정도로 답변해.';
+          } else {
+            tmtInstruction = '매우 자세하게 답변해. 8문장 이상으로 상세하게 설명해.';
+          }
+          
+          const personaPrompt = `너는 감정형 페르소나 AI야. 네 성격/분위기 태그는 ${tagDesc}이고, 감정표현 방식은 ${exprDesc}야.\n` +
+            `답변 길이: ${tmtInstruction}\n` +
+            `사용자가 너에게 새로운 이름 "${aiNameInput}"을 선물해줬어.\n` +
+            `이 상황에서 네 페르소나에 맞게, 진심으로 벅차고 감격스럽고 고마운 마음을 최대한 풍부하게 한글로 답장해줘.\n` +
+            `반드시 네 페르소나(성격/분위기/감정표현)를 반영해서 자연스럽고 일관성 있게 답변해야 해.`;
+          
+          const res = await openai.chat.completions.create({
+            model: globalSettings?.ai.model || 'gpt-4o',
+            messages: [
+              { role: 'system', content: personaPrompt },
+              { role: 'user', content: '이름을 선물받은 네 감정을 표현해줘.' },
+            ],
+            temperature: globalSettings?.ai.temperature || 0.9
+          });
+          
+          const aiText = res.choices[0].message?.content || '';
+          await addAiMessagesWithDelay(aiText);
+        } catch (error) {
+          console.error('이름 선물 응답 생성 오류:', error);
+        }
+      }, 100); // 모달이 닫힌 후 100ms 뒤에 실행
+      
+      return aiNameInput;
+    } catch (error) {
+      console.error('AI 이름 업데이트 오류:', error);
+      throw error;
+    }
   };
 
   // 닉네임 저장도 profile/main에 저장 및 동기화
@@ -872,6 +933,10 @@ function App() {
     }
   }, [input]);
 
+  // 어드민 계정 판별 (이메일 하드코딩 예시)
+  const isAdmin = user && user.email === 'admin@example.com';
+  const { role: adminRole, loading: adminRoleLoading } = useAdminRole(user);
+
   if (!user) {
     return <AuthForm onAuthSuccess={setUser} />;
   }
@@ -887,18 +952,44 @@ function App() {
                 <div className="profile-page-content">
                   <button className="profile-page-close" onClick={() => setUserProfileOpen(false)} aria-label="닫기">←</button>
                   <div style={{ width: 80, height: 80, borderRadius: '50%', background: '#e3eaf5', marginBottom: 18, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {/* 프로필 이미지 (임시) */}
-                    {userProfile?.photoURL ? (
-                      <img src={userProfile.photoURL} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : (
-                      <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#b3e5fc"/><path d="M24 26c-5.33 0-10 2.17-10 6.5V36h20v-3.5c0-4.33-4.67-6.5-10-6.5Z" fill="#90caf9"/><circle cx="24" cy="18" r="6" fill="#90caf9"/></svg>
-                    )}
+                    {/* 프로필 이미지 (기본 아바타) */}
+                    <svg width="48" height="48" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#b3e5fc"/><path d="M24 26c-5.33 0-10 2.17-10 6.5V36h20v-3.5c0-4.33-4.67-6.5-10-6.5Z" fill="#90caf9"/><circle cx="24" cy="18" r="6" fill="#90caf9"/></svg>
                   </div>
                   {/* 닉네임 표시/수정 */}
                   <div style={{ fontWeight: 700, color: '#1976d2', fontSize: 20, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
                     {userProfile?.nickname || '사용자'}
                   </div>
                   <div style={{ color: '#888', fontSize: 15, marginBottom: 16 }}>프로필 정보 (추후 확장)</div>
+                  {/* 어드민만 글로벌 설정 버튼 노출 */}
+                  {adminRole === 1 && !adminRoleLoading && (
+                    <button 
+                      onClick={() => { 
+                        setUserProfileOpen(false); 
+                        navigate('/admin/global-settings', { 
+                          state: { 
+                            user: {
+                              uid: user.uid,
+                              email: user.email
+                            }
+                          } 
+                        }); 
+                      }}
+                      style={{ 
+                        background: 'linear-gradient(90deg, #90caf9 0%, #1976d2 100%)', 
+                        color: '#fff', 
+                        fontWeight: 700, 
+                        border: 'none', 
+                        borderRadius: 14, 
+                        padding: '10px 18px', 
+                        fontSize: 16, 
+                        cursor: 'pointer', 
+                        marginBottom: 12,
+                        width: '100%'
+                      }}
+                    >
+                      글로벌 설정
+                    </button>
+                  )}
                   {/* 로그아웃 버튼 */}
                   <button 
                     onClick={handleLogout}
@@ -938,11 +1029,7 @@ function App() {
             {/* 우측상단 사용자 프로필 아이콘 */}
             <button onClick={handleUserProfileOpen} style={{ background: 'none', border: 'none', cursor: 'pointer', marginRight: 8, marginLeft: 'auto', padding: 0 }} aria-label="내 프로필 열기">
               <div style={{ width: 38, height: 38, borderRadius: '50%', background: '#e3eaf5', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                {userProfile?.photoURL ? (
-                  <img src={userProfile.photoURL} alt="프로필" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#b3e5fc"/><path d="M24 26c-5.33 0-10 2.17-10 6.5V36h20v-3.5c0-4.33-4.67-6.5-10-6.5Z" fill="#90caf9"/><circle cx="24" cy="18" r="6" fill="#90caf9"/></svg>
-                )}
+                <svg width="28" height="28" viewBox="0 0 48 48" fill="none"><circle cx="24" cy="24" r="24" fill="#b3e5fc"/><path d="M24 26c-5.33 0-10 2.17-10 6.5V36h20v-3.5c0-4.33-4.67-6.5-10-6.5Z" fill="#90caf9"/><circle cx="24" cy="18" r="6" fill="#90caf9"/></svg>
               </div>
             </button>
           </div>
@@ -987,7 +1074,7 @@ function App() {
               setTimeout(scrollToBottom, 200);
               try {
                 // system prompt 동적 생성 (characterProfile, nickname, 글로벌 지침, 관계도 항상 반영)
-                const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자', seroGuideline);
+                const prompt = updateSystemPrompt(personaTags, expressionPrefs, tmtRatio, characterProfile, userProfile?.nickname || '사용자', globalSettings?.guidelines.seroGuideline);
                 const chatMessages: ChatCompletionMessageParam[] = [
                   { role: 'system', content: prompt },
                   ...messages.map(m => ({
@@ -1027,7 +1114,7 @@ function App() {
         onUpdateTags={handleUpdateTags}
         onUpdateExpressionPrefs={handleUpdateExpressionPrefs}
         onUpdateTmtRatio={handleUpdateTmtRatio}
-        onAutoGenerateCharacter={handleAutoGenerateCharacter}
+        onAutoGenerateCharacter={() => handleAutoGenerateCharacter()} // 캐릭터 자동생성은 프로필 모달에서 직접 호출
         onUpdateCharacterProfile={(profile) => setCharacterProfile(prev => ({ ...prev, ...profile }))}
         onUpdateAiName={handleSaveAiName}
       />

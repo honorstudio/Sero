@@ -82,13 +82,78 @@ export interface ParticleAvatarProps {
   particleCount?: number;
 }
 
-// 글로벌 설정 타입
+// 글로벌 설정 타입 정의
 export interface GlobalSettings {
-  seroGuideline?: string;
-  messageExtractThreshold?: number;
-  defaultTmtRatio?: number;
-  personaTags?: PersonaTag[];
-  expressionPresets?: ExpressionPreset[];
+  guidelines: {
+    seroGuideline: string;
+  };
+  personality: {
+    // 기본 타입 설정 (세로 생성 시 초기값)
+    defaultTypeSettings: {
+      [categoryName: string]: string[]; // 카테고리명: 선택된 아이템들
+    };
+    // 새로운 타입 관리 시스템
+    types: PersonalityType[];
+    maxMoodTags?: number;
+    maxPersonalityTags?: number;
+    maxExpressionPrefs?: number;
+  };
+  system: {
+    tmtRatio: number;
+    extractInterval: number;
+    maxMessageLength: number;
+  };
+  ai: {
+    model: string;
+    temperature: number;
+    maxTokens: number;
+  };
+}
+
+// 새로운 타입 구조
+export interface PersonalityType {
+  categoryName: string;
+  type: 'tag' | 'example';
+  items: string[] | ExpressionItem[]; // 태그형은 string[], 예시형은 ExpressionItem[]
+  maxSelection?: number; // 타입별 최대 선택 개수
+}
+
+// 예시형 아이템 구조
+export interface ExpressionItem {
+  label: string;
+  example: string;
+}
+
+// 타입 백업 구조
+export interface TypeBackup {
+  id: string;
+  name: string;
+  date: string;
+  types: PersonalityType[];
+}
+
+// 페르소나 관련 타입 정의
+export interface Persona {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  tags: string[];
+  characterProfile: {
+    gender: string;
+    job: string;
+    description: string;
+  };
+  expressionPrefs: string[];
+  tmtRatio: number;
+}
+
+// 사용자 프로필 타입 정의
+export interface UserProfile {
+  nickname: string;
+  introduction?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // 메타데이터 타입

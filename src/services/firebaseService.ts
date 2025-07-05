@@ -153,29 +153,42 @@ export const relationsService = {
 
 // 글로벌 설정 관련 서비스
 export const globalService = {
-  // 세로 지침 가져오기
+  // 세로 지침 가져오기 (글로벌 설정에서)
   async getSeroGuideline(): Promise<string> {
-    const guidelineRef = doc(db, 'global', 'sero_guideline');
-    const snap = await getDoc(guidelineRef);
-    
-    if (snap.exists()) {
-      return snap.data().guideline || '';
+    try {
+      const settingsRef = doc(db, 'global', 'settings');
+      const snap = await getDoc(settingsRef);
+      
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.guidelines && data.guidelines.seroGuideline) {
+          return data.guidelines.seroGuideline;
+        }
+      }
+      return ''; // 기본값
+    } catch (error) {
+      console.error('세로 지침 로드 실패:', error);
+      return ''; // 기본값
     }
-    return '';
   },
 
-  // 메시지 추출 임계값 가져오기
+  // 메시지 추출 임계값 가져오기 (글로벌 설정에서)
   async getMessageExtractThreshold(): Promise<number> {
-    const countRef = doc(db, 'global', 'relation_count');
-    const snap = await getDoc(countRef);
-    
-    if (snap.exists()) {
-      const data = snap.data();
-      if (typeof data.count === 'number' && data.count > 0) {
-        return data.count;
+    try {
+      const settingsRef = doc(db, 'global', 'settings');
+      const snap = await getDoc(settingsRef);
+      
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.system && typeof data.system.extractInterval === 'number' && data.system.extractInterval > 0) {
+          return data.system.extractInterval;
+        }
       }
+      return 10; // 기본값 (글로벌 설정 기본값과 동일)
+    } catch (error) {
+      console.error('메시지 추출 임계값 로드 실패:', error);
+      return 10; // 기본값
     }
-    return 2; // 기본값
   }
 };
 

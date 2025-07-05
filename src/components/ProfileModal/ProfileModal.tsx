@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { AiProfile, CharacterProfile } from '../../types';
-import { allTags, expressionPresets } from '../../utils/personaUtils';
-import './ProfileModal.module.css';
+import { useGlobalSettings } from '../../hooks/useGlobalSettings';
+import styles from './ProfileModal.module.css';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -44,6 +44,12 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   const [aiNameError, setAiNameError] = useState('');
   const [aiNameSaving, setAiNameSaving] = useState(false);
 
+  // 글로벌 설정에서 태그들 가져오기
+  const { settings: globalSettings } = useGlobalSettings();
+  
+  // 글로벌 설정의 타입들을 동적으로 사용
+  const availableTypes = globalSettings?.personality?.types || [];
+
   if (!isOpen) return null;
 
   const handleSaveAiName = async () => {
@@ -69,9 +75,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
 
   return (
     <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 300 }}>
-      <div className="profile-page-overlay">
-        <div className="profile-page-content">
-          <button className="profile-page-close" onClick={onClose} aria-label="닫기">←</button>
+      <div className={styles.profilePageOverlay}>
+        <div className={styles.profilePageContent}>
+          <button className={styles.profilePageClose} onClick={onClose} aria-label="닫기">←</button>
           
           {/* AI 이름 표시 및 수정 버튼 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -96,35 +102,35 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
 
           {/* AI 이름 수정 팝업 */}
           {aiNameEditOpen && (
-            <div className="ai-name-popup-overlay">
-              <div className="ai-name-popup-content">
+            <div className={styles.aiNamePopupOverlay}>
+              <div className={styles.aiNamePopupContent}>
                 <input
                   type="text"
                   value={aiNameInput}
                   onChange={e => setAiNameInput(e.target.value)}
                   maxLength={12}
-                  className="ai-name-input"
+                  className={styles.aiNameInput}
                   autoFocus
                   onKeyDown={e => { if (e.key === 'Enter') handleSaveAiName(); }}
                   aria-label="AI 이름 입력"
                   placeholder="새로운 AI 이름"
                 />
-                {aiNameError && <div className="ai-name-error">{aiNameError}</div>}
+                {aiNameError && <div className={styles.aiNameError}>{aiNameError}</div>}
                 <button
                   onClick={handleSaveAiName}
                   disabled={aiNameSaving}
-                  className="ai-name-save-btn"
+                  className={styles.aiNameSaveBtn}
                 >
                   {aiNameSaving ? '저장 중...' : '이름 선물하기'}
                 </button>
                 <button
                   onClick={() => setAiNameEditOpen(false)}
-                  className="ai-name-cancel-btn"
+                  className={styles.aiNameCancelBtn}
                 >
                   취소
                 </button>
-                <div className="ai-name-description">
-                  세로에게 새 이름은 <span className="highlight">선물</span>과 같아요.<br/>신중하게 지어주세요.
+                <div className={styles.aiNameDescription}>
+                  세로에게 새 이름은 <span className={styles.highlight}>선물</span>과 같아요.<br/>신중하게 지어주세요.
                 </div>
               </div>
             </div>
@@ -133,104 +139,87 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
           {/* 태그(성격/감정표현) UI */}
           {tagEditMode ? (
             <>
-              {/* 분위기 태그 */}
-              <div className="profile-section">
-                <div className="profile-section-title">
-                  분위기 <span className="section-subtitle">(최대 2개)</span>
-                </div>
-                <div className="persona-tags-list">
-                  {allTags.filter(t => t.category === '대형').map(tag => (
-                    <span
-                      key={tag.name}
-                      className={`persona-tag ${personaTags.includes(tag.name) ? 'active' : 'inactive'}`}
-                      onClick={() => {
-                        const isActive = personaTags.includes(tag.name);
-                        let nextTags = [...personaTags];
-                        const mainCount = allTags.filter(t => t.category === '대형' && nextTags.includes(t.name)).length;
-                        if (isActive) {
-                          if (mainCount <= 1) return; // 최소 1개
-                          nextTags = nextTags.filter(t => t !== tag.name);
-                        } else {
-                          if (mainCount >= 2) return; // 최대 2개
-                          nextTags.push(tag.name);
-                        }
-                        onUpdateTags(nextTags);
-                      }}
-                    >
-                      {tag.name}
+              {/* 동적 타입 섹션들 */}
+              {availableTypes.map((type, typeIndex) => (
+                <div key={typeIndex} className={styles.profileSection}>
+                  <div className={styles.profileSectionTitle}>
+                    {type.categoryName} <span className={styles.sectionSubtitle}>
+                      (최대 {type.maxSelection ?? (type.type === 'tag' ? (type.categoryName === '분위기' ? 2 : 4) : 4)}개)
                     </span>
-                  ))}
+                  </div>
+                  <div className={styles.personaTagsList}>
+                    {type.type === 'tag' ? (
+                      // 태그형
+                      (type.items as string[]).map((tag, tagIndex) => (
+                        <span
+                          key={tagIndex}
+                          className={`${styles.personaTag} ${personaTags.includes(tag) ? styles.active : styles.inactive}`}
+                          onClick={() => {
+                            const isActive = personaTags.includes(tag);
+                            let nextTags = [...personaTags];
+                            
+                            // 현재 타입의 모든 태그들
+                            const currentTypeTags = type.items as string[];
+                            // 현재 타입에서 선택된 태그들만 카운트
+                            const selectedInCurrentType = nextTags.filter(t => currentTypeTags.includes(t));
+                            const maxCount = type.maxSelection ?? (type.categoryName === '분위기' ? 2 : 4);
+                            
+                            if (isActive) {
+                              if (selectedInCurrentType.length <= 1) return; // 최소 1개
+                              nextTags = nextTags.filter(t => t !== tag);
+                            } else {
+                              if (selectedInCurrentType.length >= maxCount) return; // 최대 개수
+                              nextTags.push(tag);
+                            }
+                            onUpdateTags(nextTags);
+                          }}
+                        >
+                          {tag}
+                        </span>
+                      ))
+                    ) : (
+                      // 예시형
+                      (type.items as any[]).map((item, itemIndex) => (
+                        <span
+                          key={itemIndex}
+                          className={`${styles.personaTag} ${styles.exprPreset} ${expressionPrefs.includes(item.label) ? styles.active : styles.inactive}`}
+                          onClick={() => {
+                            let next = [...expressionPrefs];
+                            const isActive = next.includes(item.label);
+                            
+                            // 현재 타입의 모든 라벨들
+                            const currentTypeLabels = (type.items as any[]).map(item => item.label);
+                            // 현재 타입에서 선택된 라벨들만 카운트
+                            const selectedInCurrentType = next.filter(label => currentTypeLabels.includes(label));
+                            const maxCount = type.maxSelection ?? 4;
+                            
+                            if (isActive) {
+                              if (selectedInCurrentType.length <= 1) return; // 최소 1개
+                              next = next.filter(k => k !== item.label);
+                            } else {
+                              if (selectedInCurrentType.length >= maxCount) return; // 최대 개수
+                              next.push(item.label);
+                            }
+                            onUpdateExpressionPrefs(next);
+                          }}
+                        >
+                          {item.label} <span className={styles.presetExample}>{item.example}</span>
+                        </span>
+                      ))
+                    )}
+                  </div>
                 </div>
-              </div>
-
-              {/* 성격 태그 */}
-              <div className="profile-section">
-                <div className="profile-section-title">
-                  성격 <span className="section-subtitle">(최대 4개)</span>
-                </div>
-                <div className="persona-tags-list">
-                  {allTags.filter(t => t.category === '유형').map(tag => (
-                    <span
-                      key={tag.name}
-                      className={`persona-tag ${personaTags.includes(tag.name) ? 'active' : 'inactive'}`}
-                      onClick={() => {
-                        const isActive = personaTags.includes(tag.name);
-                        let nextTags = [...personaTags];
-                        const typeCount = allTags.filter(t => t.category === '유형' && nextTags.includes(t.name)).length;
-                        if (isActive) {
-                          if (typeCount <= 1) return; // 최소 1개
-                          nextTags = nextTags.filter(t => t !== tag.name);
-                        } else {
-                          if (typeCount >= 4) return; // 최대 4개
-                          nextTags.push(tag.name);
-                        }
-                        onUpdateTags(nextTags);
-                      }}
-                    >
-                      {tag.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* 감정표현 태그 */}
-              <div className="profile-section">
-                <div className="profile-section-title">
-                  감정표현 <span className="section-subtitle">(최대 4개)</span>
-                </div>
-                <div className="persona-tags-list">
-                  {expressionPresets.map(preset => (
-                    <span
-                      key={preset.key}
-                      className={`persona-tag expr-preset ${expressionPrefs.includes(preset.key) ? 'active' : 'inactive'}`}
-                      onClick={() => {
-                        let next = [...expressionPrefs];
-                        const isActive = next.includes(preset.key);
-                        if (isActive) {
-                          if (next.length <= 1) return; // 최소 1개
-                          next = next.filter(k => k !== preset.key);
-                        } else {
-                          if (next.length >= 4) return; // 최대 4개
-                          next.push(preset.key);
-                        }
-                        onUpdateExpressionPrefs(next);
-                      }}
-                    >
-                      {preset.label} <span className="preset-example">{preset.example}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
+              ))}
 
               {/* TMT 비율 슬라이더 */}
-              <div className="profile-section">
-                <div className="profile-section-title">
-                  답변 길이 <span className="section-subtitle">(TMT 비율)</span>
+              <div className={styles.profileSection}>
+                <div className={styles.profileSectionTitle}>
+                  답변 길이 <span className={styles.sectionSubtitle}>(TMT 비율)</span>
                 </div>
-                <div className="tmt-slider-container">
-                  <div className="tmt-slider-labels">
+                <div className={styles.tmtSliderContainer}>
+                  <div className={styles.tmtSliderLabels}>
                     <span>간결</span>
-                    <span className="tmt-value">{tmtRatio}%</span>
+                    <span className={styles.tmtValue}>{tmtRatio}%</span>
                     <span>자세</span>
                   </div>
                   <input
@@ -239,9 +228,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                     max="100"
                     value={tmtRatio}
                     onChange={(e) => onUpdateTmtRatio(Number(e.target.value))}
-                    className="tmt-slider"
+                    className={styles.tmtSlider}
                   />
-                  <div className="tmt-slider-markers">
+                  <div className={styles.tmtSliderMarkers}>
                     <span>단답</span>
                     <span>적당</span>
                     <span>TMT</span>
@@ -250,85 +239,79 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               </div>
 
               {/* 캐릭터 프로필 입력란 */}
-              <div className="profile-section">
-                <div className="profile-section-title">
-                  정보<span className="section-subtitle">(직접 수정 가능)</span>
+              <div className={styles.profileSection}>
+                <div className={styles.profileSectionTitle}>
+                  정보<span className={styles.sectionSubtitle}>(직접 수정 가능)</span>
                 </div>
-                <div className="character-inputs">
+                <div className={styles.characterInputs}>
                   <button 
                     type="button" 
                     onClick={onAutoGenerateCharacter} 
                     disabled={characterGenLoading}
-                    className="auto-generate-btn"
+                    className={styles.autoGenerateBtn}
                   >
                     {characterGenLoading ? '생성 중...' : '자동생성'}
                   </button>
-                  {characterGenError && <div className="character-error">{characterGenError}</div>}
+                  {characterGenError && <div className={styles.characterError}>{characterGenError}</div>}
                   <input
                     type="text"
                     placeholder="성별 (예: 남성, 여성, 미정)"
                     value={characterProfile.gender}
                     onChange={e => onUpdateCharacterProfile({ gender: e.target.value })}
-                    className="character-input"
+                    className={styles.characterInput}
                   />
                   <input
                     type="text"
                     placeholder="직업 (예: 대학생, 디자이너, 미정)"
                     value={characterProfile.job}
                     onChange={e => onUpdateCharacterProfile({ job: e.target.value })}
-                    className="character-input"
+                    className={styles.characterInput}
                   />
                   <textarea
                     placeholder="간단한 설명 (예: 밝고 외향적인 성격의 대학생)"
                     value={characterProfile.description}
                     onChange={e => onUpdateCharacterProfile({ description: e.target.value })}
-                    className="character-textarea"
+                    className={styles.characterTextarea}
                   />
                 </div>
               </div>
             </>
           ) : (
             <>
-              {/* 읽기 전용 모드 */}
-              <div className="profile-section">
-                <div className="profile-section-title">분위기</div>
-                <div className="persona-tags-list">
-                  {allTags.filter(t => t.category === '대형' && personaTags.includes(t.name)).map(tag => (
-                    <span key={tag.name} className="persona-tag active" style={{ pointerEvents: 'none' }}>
-                      {tag.name}
-                    </span>
-                  ))}
+              {/* 읽기 전용 모드 - 동적 타입 섹션들 */}
+              {availableTypes.map((type, typeIndex) => (
+                <div key={typeIndex} className={styles.profileSection}>
+                  <div className={styles.profileSectionTitle}>{type.categoryName}</div>
+                  <div className={styles.personaTagsList}>
+                    {type.type === 'tag' ? (
+                      // 태그형
+                      (type.items as string[])
+                        .filter(tag => personaTags.includes(tag))
+                        .map((tag, tagIndex) => (
+                          <span key={tagIndex} className={`${styles.personaTag} ${styles.active}`} style={{ pointerEvents: 'none' }}>
+                            {tag}
+                          </span>
+                        ))
+                    ) : (
+                      // 예시형
+                      (type.items as any[])
+                        .filter(item => expressionPrefs.includes(item.label))
+                        .map((item, itemIndex) => (
+                          <span key={itemIndex} className={`${styles.personaTag} ${styles.exprPreset} ${styles.active}`} style={{ pointerEvents: 'none' }}>
+                            {item.label} <span className={styles.presetExample}>{item.example}</span>
+                          </span>
+                        ))
+                    )}
+                  </div>
                 </div>
-              </div>
+              ))}
               
-              <div className="profile-section">
-                <div className="profile-section-title">성격</div>
-                <div className="persona-tags-list">
-                  {allTags.filter(t => t.category === '유형' && personaTags.includes(t.name)).map(tag => (
-                    <span key={tag.name} className="persona-tag active" style={{ pointerEvents: 'none' }}>
-                      {tag.name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="profile-section">
-                <div className="profile-section-title">감정표현</div>
-                <div className="persona-tags-list">
-                  {expressionPresets.filter(preset => expressionPrefs.includes(preset.key)).map(preset => (
-                    <span key={preset.key} className="persona-tag expr-preset active" style={{ pointerEvents: 'none' }}>
-                      {preset.label} <span className="preset-example">{preset.example}</span>
-                    </span>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="profile-section">
-                <div className="profile-section-title">답변 길이</div>
-                <div className="tmt-slider-container">
-                  <div className="tmt-slider-labels">
+              <div className={styles.profileSection}>
+                <div className={styles.profileSectionTitle}>답변 길이</div>
+                <div className={styles.tmtSliderContainer}>
+                  <div className={styles.tmtSliderLabels}>
                     <span>간결</span>
-                    <span className="tmt-value">{tmtRatio}%</span>
+                    <span className={styles.tmtValue}>{tmtRatio}%</span>
                     <span>자세</span>
                   </div>
                   <input
@@ -337,9 +320,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                     max="100"
                     value={tmtRatio}
                     disabled={true}
-                    className="tmt-slider disabled"
+                    className={`${styles.tmtSlider} ${styles.disabled}`}
                   />
-                  <div className="tmt-slider-markers">
+                  <div className={styles.tmtSliderMarkers}>
                     <span>한 문장</span>
                     <span>적당</span>
                     <span>매우 자세</span>
@@ -347,9 +330,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
               </div>
               
-              <div className="profile-section">
-                <div className="profile-section-title">가상 캐릭터 정보</div>
-                <div className="character-info">
+              <div className={styles.profileSection}>
+                <div className={styles.profileSectionTitle}>가상 캐릭터 정보</div>
+                <div className={styles.characterInfo}>
                   <div>성별: {characterProfile.gender || '미정'}</div>
                   <div>직업: {characterProfile.job || '미정'}</div>
                   <div>설명: {characterProfile.description || '없음'}</div>
@@ -360,11 +343,11 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
 
           {/* 버튼 */}
           {tagEditMode ? (
-            <button className="profile-reset-btn" onClick={handleProfileResetComplete}>
+            <button className={styles.profileResetBtn} onClick={handleProfileResetComplete}>
               재설정 완료
             </button>
           ) : (
-            <button className="profile-reset-btn" onClick={() => setTagEditMode(true)}>
+            <button className={styles.profileResetBtn} onClick={() => setTagEditMode(true)}>
               성격 재설정
             </button>
           )}
