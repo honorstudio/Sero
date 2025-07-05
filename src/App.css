@@ -295,6 +295,8 @@ body {
   border-radius: 0;
   box-shadow: none;
   transition: background 0.5s;
+  scroll-behavior: smooth;
+  scroll-padding-bottom: 0; /* 20px에서 0으로 변경 */
 }
 
 .chat-list.chat-list-bordered {
@@ -320,19 +322,9 @@ body {
   margin-bottom: 2px;
   box-shadow: 0 2px 8px 0 rgba(31, 38, 135, 0.04);
   backdrop-filter: blur(4px);
-  transition: background 0.2s, transform 0.4s, opacity 0.4s;
-  opacity: 0;
-  transform: translateY(20px) scale(0.98);
-  animation: fadeInUp 0.5s forwards;
+  transition: background 0.2s, transform 0.4s ease-out, opacity 0.4s ease-out;
   background: rgba(255,255,255,0.85);
   border: 1.5px solid #e3eaf5;
-}
-
-@keyframes fadeInUp {
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 .chat-message-content {

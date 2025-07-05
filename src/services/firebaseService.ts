@@ -11,17 +11,18 @@ import {
   onSnapshot, 
   updateDoc, 
   limit, 
-  startAfter 
+  startAfter, 
+  deleteDoc 
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Message, ProfileData, RelationsData, UserMeta } from '../types';
+import { Message, ProfileData, RelationsData, UserMeta, PersonaListItem, Persona, CreatePersonaRequest } from '../types';
 
 // 메시지 관련 서비스
 export const messageService = {
   // 메시지 저장
-  async saveMessage(userId: string, message: Message): Promise<void> {
+  async saveMessage(userId: string, personaId: string, message: Message): Promise<void> {
     await addDoc(
-      collection(db, 'chats', userId, 'messages'),
+      collection(db, 'chats', userId, 'personas', personaId, 'messages'),
       {
         sender: message.sender,
         text: message.text,
@@ -31,9 +32,9 @@ export const messageService = {
   },
 
   // 최근 메시지 불러오기
-  async getRecentMessages(userId: string, limitCount: number = 30): Promise<Message[]> {
+  async getRecentMessages(userId: string, personaId: string, limitCount: number = 30): Promise<Message[]> {
     const q = query(
-      collection(db, 'chats', userId, 'messages'),
+      collection(db, 'chats', userId, 'personas', personaId, 'messages'),
       orderBy('createdAt', 'desc'),
       limit(limitCount)
     );
@@ -49,9 +50,9 @@ export const messageService = {
   },
 
   // 이전 메시지 불러오기 (무한 스크롤)
-  async getMoreMessages(userId: string, lastDoc: any, limitCount: number = 20): Promise<{ messages: Message[], lastDoc: any }> {
+  async getMoreMessages(userId: string, personaId: string, lastDoc: any, limitCount: number = 20): Promise<{ messages: Message[], lastDoc: any }> {
     const q = query(
-      collection(db, 'chats', userId, 'messages'),
+      collection(db, 'chats', userId, 'personas', personaId, 'messages'),
       orderBy('createdAt', 'desc'),
       startAfter(lastDoc),
       limit(limitCount)
@@ -73,8 +74,8 @@ export const messageService = {
   },
 
   // 실시간 메시지 구독
-  subscribeToMessages(userId: string, callback: (messages: Message[]) => void) {
-    const q = query(collection(db, 'chats', userId, 'messages'), orderBy('createdAt'));
+  subscribeToMessages(userId: string, personaId: string, callback: (messages: Message[]) => void) {
+    const q = query(collection(db, 'chats', userId, 'personas', personaId, 'messages'), orderBy('createdAt'));
     return onSnapshot(q, (querySnapshot) => {
       const messages: Message[] = querySnapshot.docs.map(doc => {
         const data = doc.data();
@@ -209,5 +210,154 @@ export const metaService = {
   async saveMeta(userId: string, metaData: Partial<UserMeta>): Promise<void> {
     const metaRef = doc(db, 'users', userId, 'meta', 'main');
     await setDoc(metaRef, metaData, { merge: true });
+  }
+}; 
+
+// 페르소나 관련 서비스
+export const personaService = {
+  // 페르소나 목록 가져오기
+  async getPersonas(userId: string): Promise<PersonaListItem[]> {
+    try {
+      const personasRef = collection(db, 'personas', userId, 'items');
+      const snapshot = await getDocs(personasRef);
+      
+      const personas: PersonaListItem[] = [];
+      for (const doc of snapshot.docs) {
+        const data = doc.data();
+        personas.push({
+          id: doc.id,
+          name: data.name,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          lastMessageAt: data.lastMessageAt?.toDate(),
+          messageCount: data.messageCount || 0,
+          tags: data.tags || [],
+          characterProfile: data.characterProfile || { gender: '', job: '', description: '' }
+        });
+      }
+      
+      // 생성일 기준 내림차순 정렬
+      return personas.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    } catch (error) {
+      console.error('페르소나 목록 로드 실패:', error);
+      return [];
+    }
+  },
+
+  // 페르소나 생성
+  async createPersona(userId: string, personaData: CreatePersonaRequest): Promise<string> {
+    try {
+      // 중복 이름 확인
+      const existingPersonas = await this.getPersonas(userId);
+      let personaName = personaData.name;
+      let counter = 1;
+      
+      while (existingPersonas.some(p => p.name === personaName)) {
+        personaName = `${personaData.name}${counter}`;
+        counter++;
+      }
+
+      const personaRef = doc(collection(db, 'personas', userId, 'items'));
+      const now = new Date();
+      
+      await setDoc(personaRef, {
+        name: personaName,
+        tags: personaData.tags,
+        expressionPrefs: personaData.expressionPrefs,
+        tmtRatio: personaData.tmtRatio,
+        characterProfile: personaData.characterProfile,
+        createdAt: now,
+        updatedAt: now,
+        messageCount: 0
+      });
+
+      return personaRef.id;
+    } catch (error) {
+      console.error('페르소나 생성 실패:', error);
+      throw error;
+    }
+  },
+
+  // 페르소나 삭제
+  async deletePersona(userId: string, personaId: string): Promise<void> {
+    try {
+      // 페르소나 삭제
+      await deleteDoc(doc(db, 'personas', userId, 'items', personaId));
+      
+      // 관련 채팅 메시지 삭제
+      const messagesRef = collection(db, 'chats', userId, 'personas', personaId, 'messages');
+      const messagesSnapshot = await getDocs(messagesRef);
+      const deletePromises = messagesSnapshot.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      // 관련 관계도 삭제
+      const relationsRef = doc(db, 'relations', userId, personaId, 'data');
+      await deleteDoc(relationsRef);
+      
+    } catch (error) {
+      console.error('페르소나 삭제 실패:', error);
+      throw error;
+    }
+  },
+
+  // 페르소나 정보 가져오기
+  async getPersona(userId: string, personaId: string): Promise<Persona | null> {
+    try {
+      const personaRef = doc(db, 'personas', userId, 'items', personaId);
+      const snapshot = await getDoc(personaRef);
+      
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        return {
+          id: snapshot.id,
+          name: data.name,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+          tags: data.tags || [],
+          characterProfile: data.characterProfile || { gender: '', job: '', description: '' },
+          expressionPrefs: data.expressionPrefs || [],
+          tmtRatio: data.tmtRatio || 50
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('페르소나 정보 로드 실패:', error);
+      return null;
+    }
+  },
+
+  // 기본 "세로" 페르소나 생성 (가입 시)
+  async createDefaultPersona(userId: string): Promise<string> {
+    const { GlobalSettingsService } = await import('../services/globalSettingsService');
+    const settings = await GlobalSettingsService.getInstance().getSettings();
+    
+    // 기본 타입 설정에서 태그와 감정표현 추출
+    const defaultTags: string[] = [];
+    const defaultExpressions: string[] = [];
+    
+    Object.entries(settings.personality.defaultTypeSettings || {}).forEach(([categoryName, selectedItems]) => {
+      const type = settings.personality.types.find((t: any) => t.categoryName === categoryName);
+      if (type) {
+        if (type.type === 'tag') {
+          defaultTags.push(...(selectedItems as string[]));
+        } else if (type.type === 'example') {
+          defaultExpressions.push(...(selectedItems as string[]));
+        }
+      }
+    });
+
+    const defaultPersonaData: CreatePersonaRequest = {
+      name: '세로',
+      tags: defaultTags,
+      expressionPrefs: defaultExpressions,
+      tmtRatio: settings.system.tmtRatio,
+      characterProfile: {
+        gender: '',
+        job: '',
+        description: ''
+      }
+    };
+
+    return this.createPersona(userId, defaultPersonaData);
   }
 }; 

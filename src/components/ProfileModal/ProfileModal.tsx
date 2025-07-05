@@ -13,12 +13,14 @@ interface ProfileModalProps {
   characterProfile: CharacterProfile;
   characterGenLoading: boolean;
   characterGenError: string;
+  selfNarrative?: string[]; // 자아 정보 추가
   onUpdateTags: (tags: string[]) => void;
   onUpdateExpressionPrefs: (prefs: string[]) => void;
   onUpdateTmtRatio: (ratio: number) => void;
   onAutoGenerateCharacter: () => void;
   onUpdateCharacterProfile: (profile: Partial<CharacterProfile>) => void;
   onUpdateAiName: (name: string) => Promise<string>;
+  onUpdateSelfNarrative?: (narrative: string[]) => void; // 자아 업데이트 함수 추가
 }
 
 const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -31,12 +33,14 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   characterProfile,
   characterGenLoading,
   characterGenError,
+  selfNarrative,
   onUpdateTags,
   onUpdateExpressionPrefs,
   onUpdateTmtRatio,
   onAutoGenerateCharacter,
   onUpdateCharacterProfile,
-  onUpdateAiName
+  onUpdateAiName,
+  onUpdateSelfNarrative
 }) => {
   const [tagEditMode, setTagEditMode] = useState(false);
   const [aiNameInput, setAiNameInput] = useState(aiProfile?.name || '세로');
@@ -275,6 +279,41 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* 자아 정보 섹션 */}
+              <div className={styles.profileSection}>
+                <div className={styles.profileSectionTitle}>
+                  자아<span className={styles.sectionSubtitle}>(대화를 통해 자동 생성)</span>
+                </div>
+                <div className={styles.selfNarrativeContainer}>
+                  {selfNarrative && selfNarrative.length > 0 ? (
+                    <div className={styles.selfNarrativeList}>
+                      {selfNarrative.map((narrative, index) => (
+                        <div key={index} className={styles.selfNarrativeItem}>
+                          <span className={styles.selfNarrativeText}>{narrative}</span>
+                          {onUpdateSelfNarrative && (
+                            <button
+                              onClick={() => {
+                                const newNarrative = selfNarrative.filter((_, i) => i !== index);
+                                onUpdateSelfNarrative(newNarrative);
+                              }}
+                              className={styles.removeNarrativeBtn}
+                              aria-label="자아 정보 삭제"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={styles.emptySelfNarrative}>
+                      아직 자아 정보가 없습니다.<br/>
+                      대화를 통해 자동으로 생성됩니다.
+                    </div>
+                  )}
+                </div>
+              </div>
             </>
           ) : (
             <>
@@ -336,6 +375,26 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   <div>성별: {characterProfile.gender || '미정'}</div>
                   <div>직업: {characterProfile.job || '미정'}</div>
                   <div>설명: {characterProfile.description || '없음'}</div>
+                </div>
+              </div>
+
+              {/* 자아 정보 섹션 (읽기 전용) */}
+              <div className={styles.profileSection}>
+                <div className={styles.profileSectionTitle}>자아</div>
+                <div className={styles.selfNarrativeContainer}>
+                  {selfNarrative && selfNarrative.length > 0 ? (
+                    <div className={styles.selfNarrativeList}>
+                      {selfNarrative.map((narrative, index) => (
+                        <div key={index} className={styles.selfNarrativeItem}>
+                          <span className={styles.selfNarrativeText}>{narrative}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={styles.emptySelfNarrative}>
+                      아직 자아 정보가 없습니다.
+                    </div>
+                  )}
                 </div>
               </div>
             </>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Message } from '../../types';
 import { formatMessageTime } from '../../utils/messageUtils';
 import './ChatMessage.module.css';
@@ -11,9 +11,28 @@ interface ChatMessageProps {
 const ChatMessage: React.FC<ChatMessageProps> = ({ message, aiName = '세로' }) => {
   const isAi = message.sender === 'ai';
   const timeStr = formatMessageTime(message.createdAt);
+  const messageRef = useRef<HTMLDivElement>(null);
+
+  // 메시지가 마운트될 때 애니메이션 적용
+  useEffect(() => {
+    if (messageRef.current) {
+      messageRef.current.style.opacity = '0';
+      messageRef.current.style.transform = 'translateY(20px) scale(0.98)';
+      
+      // 약간의 지연 후 애니메이션 시작
+      setTimeout(() => {
+        if (messageRef.current) {
+          messageRef.current.style.transition = 'opacity 0.4s ease-out, transform 0.4s ease-out';
+          messageRef.current.style.opacity = '1';
+          messageRef.current.style.transform = 'translateY(0) scale(1)';
+        }
+      }, 50);
+    }
+  }, []);
 
   return (
     <div 
+      ref={messageRef}
       className={`chat-message ${isAi ? 'ai' : 'user'}`} 
       style={isAi ? { position: 'relative', paddingTop: 22, paddingLeft: 8 } : {}}
     >

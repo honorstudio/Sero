@@ -3,7 +3,7 @@ import { Message } from '../types';
 import { messageService } from '../services/firebaseService';
 import { splitSentences } from '../utils/messageUtils';
 
-export const useChat = (userId: string | null) => {
+export const useChat = (userId: string | null, personaId?: string) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [aiTyping, setAiTyping] = useState(false);
@@ -14,12 +14,12 @@ export const useChat = (userId: string | null) => {
 
   // 초기 메시지 로드
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !personaId) return;
     
     const loadInitialMessages = async () => {
       setLoadingMore(true);
       try {
-        const recentMessages = await messageService.getRecentMessages(userId, 30);
+        const recentMessages = await messageService.getRecentMessages(userId, personaId, 30);
         setMessages(recentMessages);
         setHasMoreMessages(recentMessages.length === 30);
       } catch (error) {
@@ -29,31 +29,36 @@ export const useChat = (userId: string | null) => {
     };
 
     loadInitialMessages();
-  }, [userId]);
+  }, [userId, personaId]);
 
   // 실시간 메시지 구독
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !personaId) return;
 
-    const unsubscribe = messageService.subscribeToMessages(userId, (newMessages) => {
+    const unsubscribe = messageService.subscribeToMessages(userId, personaId, (newMessages) => {
       setMessages(newMessages);
     });
 
     return () => unsubscribe();
-  }, [userId]);
+  }, [userId, personaId]);
 
   // 스크롤 최하단 이동
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'end' 
+      });
+    }
   };
 
   // 이전 메시지 로드 (무한 스크롤)
   const loadMoreMessages = async () => {
-    if (!userId || loadingMore || !hasMoreMessages) return;
+    if (!userId || !personaId || loadingMore || !hasMoreMessages) return;
 
     setLoadingMore(true);
     try {
-      const result = await messageService.getMoreMessages(userId, lastLoadedDoc, 20);
+      const result = await messageService.getMoreMessages(userId, personaId, lastLoadedDoc, 20);
       setMessages(prev => [...result.messages, ...prev]);
       setLastLoadedDoc(result.lastDoc);
       setHasMoreMessages(result.messages.length === 20);
@@ -65,74 +70,24 @@ export const useChat = (userId: string | null) => {
 
   // 메시지 저장
   const saveMessage = async (msg: Message) => {
-    if (!userId) return;
+    if (!userId || !personaId) return;
     
     try {
-      if (msg.sender === 'ai') {
-        // AI 메시지는 문장별로 분리하여 저장
-        await addAiMessagesWithDelay(msg.text);
-      } else {
-        // 사용자 메시지는 바로 저장
-        await messageService.saveMessage(userId, msg);
-      }
+      await messageService.saveMessage(userId, personaId, msg);
     } catch (error) {
       console.error('메시지 저장 오류:', error);
     }
   };
 
-  // AI 메시지 여러 문장 순차 출력
-  const addAiMessagesWithDelay = async (text: string) => {
-    const sentences = splitSentences(text);
-    setAiTyping(true);
-    
-    // 파티클 효과 활성화
-    if (typeof window !== 'undefined' && (window as any).__setParticleFast) {
-      (window as any).__setParticleFast(true);
-    }
-
-    for (let i = 0; i < sentences.length; i++) {
-      const sentence = sentences[i];
-      await new Promise(res => setTimeout(res, Math.max(sentence.length * 80, 300)));
-      
-      const aiMessage: Message = { 
-        sender: 'ai', 
-        text: sentence, 
-        createdAt: new Date() 
-      };
-      
-      setMessages(prev => [...prev, aiMessage]);
-      
-      if (userId) {
-        await messageService.saveMessage(userId, aiMessage);
-      }
-    }
-
-    setAiTyping(false);
-    
-    // 파티클 효과 비활성화
-    if (typeof window !== 'undefined' && (window as any).__setParticleFast) {
-      (window as any).__setParticleFast(false);
-    }
-  };
-
-  // 파티클 효과 제어
-  useEffect(() => {
-    if (typeof window !== 'undefined' && (window as any).__setParticleFast) {
-      (window as any).__setParticleFast(aiTyping);
-    }
-  }, [aiTyping]);
-
   return {
     messages,
     loading,
     setLoading,
-    aiTyping,
     hasMoreMessages,
     loadingMore,
     messagesEndRef,
     scrollToBottom,
     loadMoreMessages,
-    saveMessage,
-    addAiMessagesWithDelay
+    saveMessage
   };
 }; 

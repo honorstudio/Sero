@@ -146,6 +146,36 @@ export interface Persona {
   };
   expressionPrefs: string[];
   tmtRatio: number;
+  selfNarrative?: string[]; // 자아 정보 추가
+}
+
+// 페르소나 목록 아이템 타입
+export interface PersonaListItem {
+  id: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastMessageAt?: Date;
+  messageCount?: number;
+  tags: string[];
+  characterProfile: {
+    gender: string;
+    job: string;
+    description: string;
+  };
+}
+
+// 페르소나 생성 요청 타입
+export interface CreatePersonaRequest {
+  name: string;
+  tags: string[];
+  expressionPrefs: string[];
+  tmtRatio: number;
+  characterProfile: {
+    gender: string;
+    job: string;
+    description: string;
+  };
 }
 
 // 사용자 프로필 타입 정의
@@ -174,7 +204,7 @@ export interface ProfileData {
   characterDescription?: string;
   places?: Place[];
   events?: any[];
-  selfNarrative?: string[];
+  selfNarrative?: string[]; // 자아 정보 추가
 }
 
 // 관계도 데이터 타입

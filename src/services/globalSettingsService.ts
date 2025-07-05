@@ -96,7 +96,7 @@ export class GlobalSettingsService {
         ]
       },
       system: {
-        tmtRatio: 50,
+        tmtRatio: 40,
         extractInterval: 10,
         maxMessageLength: 1000
       },

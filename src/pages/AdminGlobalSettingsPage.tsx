@@ -4,6 +4,7 @@ import { GlobalSettings, PersonalityType, ExpressionItem, TypeBackup } from '../
 import { GlobalSettingsService } from '../services/globalSettingsService';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAdminRole } from '../hooks/useAdminRole';
+import styles from './AdminGlobalSettingsPage.module.css';
 import {
   DndContext,
   closestCenter,
@@ -27,6 +28,8 @@ import { CSS } from '@dnd-kit/utilities';
 interface AdminGlobalSettingsPageProps {
   user: any;
 }
+
+
 
 // 드래그 가능한 타입 아이템 컴포넌트
 const SortableTypeItem: React.FC<{
@@ -53,17 +56,17 @@ const SortableTypeItem: React.FC<{
 
   return (
     <div ref={setNodeRef} style={style}>
-      <div style={{ marginBottom: 20, border: '1px solid #ddd', borderRadius: 8, padding: 16 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <div className={styles.adminTypeCard}>
+        <div className={styles.adminTypeHeader}>
+          <div className={styles.adminTypeTitle}>
             <div 
               {...attributes} 
               {...listeners}
-              style={{ cursor: 'grab', padding: '4px', color: '#666' }}
+              className={styles.adminDragHandle}
             >
               ⋮⋮
             </div>
-            <h4 style={{ margin: 0 }}>{type.categoryName} ({type.type === 'tag' ? '태그형' : '예시형'})</h4>
+            {type.categoryName} ({type.type === 'tag' ? '태그형' : '예시형'})
           </div>
           <button
             onClick={(e) => {
@@ -71,38 +74,32 @@ const SortableTypeItem: React.FC<{
               e.preventDefault();
               onDeleteType(typeIndex);
             }}
-            style={{ padding: '4px 8px', background: '#f44336', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+            className={styles.adminButtonDanger}
           >
             타입 삭제
           </button>
         </div>
         
         {/* 최대 선택 개수 설정 */}
-        <div style={{ marginBottom: 12 }}>
-          <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>최대 선택 개수</label>
+        <div style={{ marginBottom: '16px' }}>
+          <label className={styles.adminLabel}>최대 선택 개수</label>
           <input
             type="number"
             min="1"
             value={type.maxSelection || 1}
             onChange={(e) => onUpdateMaxSelection(typeIndex, Number(e.target.value))}
-            style={{ width: '100px', padding: 6, borderRadius: 4, border: '1px solid #ddd' }}
+            className={styles.adminInput}
+            style={{ width: '120px' }}
             placeholder="최대 선택 개수"
           />
         </div>
         
         {/* 아이템 목록 */}
-        <div style={{ marginBottom: 12 }}>
+        <div style={{ marginBottom: '16px' }}>
           {type.type === 'tag' ? (
             <div>
               {(type.items as string[]).map((item, itemIndex) => (
-                <span key={itemIndex} style={{ 
-                  display: 'inline-block', 
-                  background: '#e3f2fd', 
-                  padding: '4px 8px', 
-                  margin: '2px', 
-                  borderRadius: 4,
-                  position: 'relative'
-                }}>
+                <span key={itemIndex} className={styles.adminTagItem}>
                   {item}
                   <button
                     onClick={(e) => {
@@ -110,19 +107,7 @@ const SortableTypeItem: React.FC<{
                       e.preventDefault();
                       onDeleteItem(typeIndex, itemIndex);
                     }}
-                    style={{ 
-                      position: 'absolute', 
-                      top: -8, 
-                      right: -8, 
-                      background: '#f44336', 
-                      color: 'white', 
-                      border: 'none', 
-                      borderRadius: '50%', 
-                      width: 20, 
-                      height: 20, 
-                      cursor: 'pointer',
-                      fontSize: 12
-                    }}
+                    className={styles.adminDeleteButton}
                   >
                     ×
                   </button>
@@ -132,35 +117,16 @@ const SortableTypeItem: React.FC<{
           ) : (
             <div>
               {(type.items as ExpressionItem[]).map((item, itemIndex) => (
-                <div key={itemIndex} style={{ 
-                  display: 'inline-block', 
-                  background: '#e3f2fd', 
-                  padding: '8px', 
-                  margin: '4px', 
-                  borderRadius: 4,
-                  position: 'relative'
-                }}>
-                  <div><strong>{item.label}</strong></div>
-                  <div style={{ fontSize: 12, color: '#666' }}>{item.example}</div>
+                <div key={itemIndex} className={styles.adminExampleItem}>
+                  <div style={{ fontWeight: '600', color: '#1976d2', fontSize: '13px' }}>{item.label}</div>
+                  <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>{item.example}</div>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       e.preventDefault();
                       onDeleteItem(typeIndex, itemIndex);
                     }}
-                    style={{ 
-                      position: 'absolute', 
-                      top: -8, 
-                      right: -8, 
-                      background: '#f44336', 
-                      color: 'white', 
-                      border: 'none', 
-                      borderRadius: '50%', 
-                      width: 20, 
-                      height: 20, 
-                      cursor: 'pointer',
-                      fontSize: 12
-                    }}
+                    className={styles.adminDeleteButton}
                   >
                     ×
                   </button>
@@ -172,11 +138,12 @@ const SortableTypeItem: React.FC<{
         
         {/* 아이템 추가 */}
         {type.type === 'tag' ? (
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: '12px' }}>
             <input
               type="text"
               placeholder="태그 입력 (콤마로 구분)"
-              style={{ flex: 1, padding: 6, borderRadius: 4, border: '1px solid #ddd' }}
+              className={styles.adminInput}
+              style={{ flex: 1 }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   onAddTagItem(typeIndex, (e.target as HTMLInputElement).value);
@@ -190,21 +157,21 @@ const SortableTypeItem: React.FC<{
                 onAddTagItem(typeIndex, input.value);
                 input.value = '';
               }}
-              style={{ padding: '6px 12px', background: '#2196f3', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+              className={styles.adminButton}
             >
               추가
             </button>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '12px' }}>
             <input
               type="text"
               placeholder="라벨"
-              style={{ padding: 6, borderRadius: 4, border: '1px solid #ddd' }}
+              className={styles.adminInput}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   const labelInput = e.target as HTMLInputElement;
-                  const exampleInput = labelInput.nextElementSibling as HTMLInputElement;
+                  const exampleInput = labelInput.parentElement?.nextElementSibling?.querySelector('input') as HTMLInputElement;
                   onAddExampleItem(typeIndex, labelInput.value, exampleInput.value);
                   labelInput.value = '';
                   exampleInput.value = '';
@@ -214,11 +181,11 @@ const SortableTypeItem: React.FC<{
             <input
               type="text"
               placeholder="예시"
-              style={{ padding: 6, borderRadius: 4, border: '1px solid #ddd' }}
+              className={styles.adminInput}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   const exampleInput = e.target as HTMLInputElement;
-                  const labelInput = exampleInput.previousElementSibling as HTMLInputElement;
+                  const labelInput = exampleInput.parentElement?.previousElementSibling?.querySelector('input') as HTMLInputElement;
                   onAddExampleItem(typeIndex, labelInput.value, exampleInput.value);
                   labelInput.value = '';
                   exampleInput.value = '';
@@ -227,13 +194,13 @@ const SortableTypeItem: React.FC<{
             />
             <button
               onClick={(e) => {
-                const labelInput = e.currentTarget.previousElementSibling?.previousElementSibling as HTMLInputElement;
-                const exampleInput = e.currentTarget.previousElementSibling as HTMLInputElement;
+                const labelInput = e.currentTarget.parentElement?.querySelector('input') as HTMLInputElement;
+                const exampleInput = labelInput.nextElementSibling as HTMLInputElement;
                 onAddExampleItem(typeIndex, labelInput.value, exampleInput.value);
                 labelInput.value = '';
                 exampleInput.value = '';
               }}
-              style={{ padding: '6px 12px', background: '#2196f3', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+              className={styles.adminButton}
             >
               추가
             </button>
@@ -579,492 +546,407 @@ const AdminGlobalSettingsPage: React.FC<AdminGlobalSettingsPageProps> = ({ user:
   if (error) return <div>오류: {error}</div>;
   if (!editSettings) return <div>설정 정보를 불러올 수 없습니다.</div>;
 
-  return (
-    <div style={{ 
-      maxWidth: 800, 
-      margin: '40px auto', 
-      padding: 24, 
-      background: '#fff', 
-      borderRadius: 16, 
-      boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
-      maxHeight: '90vh',
-      overflowY: 'auto'
-    }}>
-      <h2 style={{ marginBottom: 24 }}>글로벌 설정 (어드민 전용)</h2>
-      
-      {/* 세로 기본 지침 */}
-      <div style={{ marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 12 }}>세로 기본 지침</h3>
-        <textarea
-          value={editSettings.guidelines.seroGuideline}
-          onChange={e => handleChange('guidelines', 'seroGuideline', e.target.value)}
-          style={{ width: '100%', minHeight: 100, padding: 12, borderRadius: 8, border: '1px solid #ddd' }}
-          placeholder="세로의 기본 행동 지침을 입력하세요..."
-        />
-      </div>
-
-      {/* 기본 타입 설정 */}
-      <div style={{ marginBottom: 24 }}>
-        <div 
-          style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center', 
-            marginBottom: 12,
-            cursor: 'pointer',
-            padding: '8px',
-            background: '#f5f5f5',
-            borderRadius: 8
-          }}
-          onClick={() => setDefaultTypeSettingsOpen(!defaultTypeSettingsOpen)}
-        >
-          <h3 style={{ margin: 0 }}>기본 타입 설정 (세로 생성 시 초기값)</h3>
-          <span style={{ fontSize: 20 }}>{defaultTypeSettingsOpen ? '▼' : '▶'}</span>
+    return (
+    <div className={styles.adminContainer}>
+      <div className={styles.adminContent}>
+        <div className={styles.adminHeader}>
+          <h2 className={styles.adminTitle}>글로벌 설정 (어드민 전용)</h2>
+          <button onClick={() => navigate(-1)} className={styles.adminBackButton}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-arrow-left"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+            뒤로
+          </button>
         </div>
         
-        {defaultTypeSettingsOpen && (
-          <div style={{ padding: 16, border: '1px solid #ddd', borderRadius: 8, background: '#fafafa' }}>
-            {editSettings.personality.types.map((type, typeIndex) => (
-              <div key={typeIndex} style={{ marginBottom: 16 }}>
-                <h4 style={{ marginBottom: 8 }}>{type.categoryName}</h4>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {type.type === 'tag' ? (
-                    (type.items as string[]).map((item, itemIndex) => {
-                      const isSelected = editSettings.personality.defaultTypeSettings[type.categoryName]?.includes(item);
-                      return (
-                        <span
-                          key={itemIndex}
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                            background: isSelected ? '#1976d2' : '#e3f2fd',
-                            color: isSelected ? 'white' : '#333',
-                            border: '1px solid #ddd'
-                          }}
-                          onClick={() => {
-                            const currentSelected = editSettings.personality.defaultTypeSettings[type.categoryName] || [];
-                            const newSelected = isSelected
-                              ? currentSelected.filter(tag => tag !== item)
-                              : [...currentSelected, item];
-                            handleDefaultTypeSettingChange(type.categoryName, newSelected);
-                          }}
-                        >
-                          {item}
-                        </span>
-                      );
-                    })
-                  ) : (
-                    (type.items as ExpressionItem[]).map((item, itemIndex) => {
-                      const isSelected = editSettings.personality.defaultTypeSettings[type.categoryName]?.includes(item.label);
-                      return (
-                        <span
-                          key={itemIndex}
-                          style={{
-                            padding: '4px 8px',
-                            borderRadius: 4,
-                            cursor: 'pointer',
-                            background: isSelected ? '#1976d2' : '#e3f2fd',
-                            color: isSelected ? 'white' : '#333',
-                            border: '1px solid #ddd'
-                          }}
-                          onClick={() => {
-                            const currentSelected = editSettings.personality.defaultTypeSettings[type.categoryName] || [];
-                            const newSelected = isSelected
-                              ? currentSelected.filter(label => label !== item.label)
-                              : [...currentSelected, item.label];
-                            handleDefaultTypeSettingChange(type.categoryName, newSelected);
-                          }}
-                        >
-                          {item.label}
-                        </span>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* 시스템 설정 */}
-      <div style={{ marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 12 }}>시스템 설정</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-          <div>
-            <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>TMT 비율</label>
-            <input
-              type="number"
-              value={editSettings.system.tmtRatio}
-              onChange={e => handleChange('system', 'tmtRatio', Number(e.target.value))}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>관계/자아 추출 주기</label>
-            <input
-              type="number"
-              value={editSettings.system.extractInterval}
-              onChange={e => handleChange('system', 'extractInterval', Number(e.target.value))}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>최대 메시지 길이</label>
-            <input
-              type="number"
-              value={editSettings.system.maxMessageLength}
-              onChange={e => handleChange('system', 'maxMessageLength', Number(e.target.value))}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-            />
-          </div>
+        {/* 세로 기본 지침 */}
+        <div className={styles.adminSection}>
+          <h3 className={styles.adminSectionTitle}>세로 기본 지침</h3>
+          <textarea
+            value={editSettings.guidelines.seroGuideline}
+            onChange={e => handleChange('guidelines', 'seroGuideline', e.target.value)}
+            className={styles.adminInput}
+            style={{ minHeight: '100px' }}
+            placeholder="세로의 기본 행동 지침을 입력하세요..."
+          />
         </div>
-      </div>
 
-      {/* AI 설정 */}
-      <div style={{ marginBottom: 24 }}>
-        <h3 style={{ marginBottom: 12 }}>AI 설정</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
-          <div>
-            <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>AI 모델</label>
-            <input
-              type="text"
-              value={editSettings.ai.model}
-              onChange={e => handleChange('ai', 'model', e.target.value)}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>Temperature</label>
-            <input
-              type="number"
-              step="0.1"
-              value={editSettings.ai.temperature}
-              onChange={e => handleChange('ai', 'temperature', Number(e.target.value))}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-            />
-          </div>
-          <div>
-            <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>Max Tokens</label>
-            <input
-              type="number"
-              value={editSettings.ai.maxTokens}
-              onChange={e => handleChange('ai', 'maxTokens', Number(e.target.value))}
-              style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 타입 관리 */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3>타입 관리</h3>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button 
-              onClick={() => setShowBackupModal(true)}
-              style={{ padding: '6px 12px', background: '#ff9800', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-            >
-              백업 생성
-            </button>
-            <button 
-              onClick={() => setShowRestoreModal(true)}
-              style={{ padding: '6px 12px', background: '#9c27b0', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-            >
-              백업 복원
-            </button>
-            <button 
-              onClick={() => setShowAddTypeModal(true)}
-              style={{ padding: '6px 12px', background: '#4caf50', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-            >
-              타입 추가
-            </button>
-          </div>
-        </div>
-        
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={editSettings.personality.types.map((_, index) => `type-${index}`)}
-            strategy={verticalListSortingStrategy}
+        {/* 기본 타입 설정 */}
+        <div className={styles.adminSection}>
+          <div 
+            style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              marginBottom: '16px',
+              cursor: 'pointer',
+              padding: '12px',
+              background: 'rgba(245,245,245,0.8)',
+              borderRadius: '16px',
+              border: '1px solid rgba(144,202,249,0.2)'
+            }}
+            onClick={() => setDefaultTypeSettingsOpen(!defaultTypeSettingsOpen)}
           >
-            {editSettings.personality.types.map((type, typeIndex) => (
-              <SortableTypeItem
-                key={`type-${typeIndex}`}
-                type={type}
-                typeIndex={typeIndex}
-                onDeleteType={handleDeleteType}
-                onAddTagItem={handleAddTagItem}
-                onAddExampleItem={handleAddExampleItem}
-                onDeleteItem={handleDeleteItem}
-                onUpdateMaxSelection={handleUpdateMaxSelection}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
-      </div>
+            <h3 className={styles.adminSectionTitle}>기본 타입 설정 (세로 생성 시 초기값)</h3>
+            <span style={{ fontSize: '20px' }}>{defaultTypeSettingsOpen ? '▼' : '▶'}</span>
+          </div>
+          
+          {defaultTypeSettingsOpen && (
+            <div style={{ padding: '24px', border: '1px solid rgba(144,202,249,0.1)', borderRadius: '16px', background: 'rgba(250,250,250,0.8)' }}>
+              {editSettings.personality.types.map((type, typeIndex) => (
+                <div key={typeIndex} style={{ marginBottom: '20px' }}>
+                  <h4 className={styles.adminSectionTitle}>{type.categoryName}</h4>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                    {type.type === 'tag' ? (
+                      (type.items as string[]).map((item, itemIndex) => {
+                        const isSelected = editSettings.personality.defaultTypeSettings[type.categoryName]?.includes(item);
+                        return (
+                          <span
+                            key={itemIndex}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '12px',
+                              cursor: 'pointer',
+                              background: isSelected ? '#1976d2' : 'rgba(227,242,253,0.8)',
+                              color: isSelected ? 'white' : '#333',
+                              border: '1px solid rgba(144,202,249,0.3)'
+                            }}
+                            onClick={() => {
+                              const currentSelected = editSettings.personality.defaultTypeSettings[type.categoryName] || [];
+                              const newSelected = isSelected
+                                ? currentSelected.filter(tag => tag !== item)
+                                : [...currentSelected, item];
+                              handleDefaultTypeSettingChange(type.categoryName, newSelected);
+                            }}
+                          >
+                            {item}
+                          </span>
+                        );
+                      })
+                    ) : (
+                      (type.items as ExpressionItem[]).map((item, itemIndex) => {
+                        const isSelected = editSettings.personality.defaultTypeSettings[type.categoryName]?.includes(item.label);
+                        return (
+                          <span
+                            key={itemIndex}
+                            style={{
+                              padding: '6px 12px',
+                              borderRadius: '12px',
+                              cursor: 'pointer',
+                              background: isSelected ? '#1976d2' : 'rgba(227,242,253,0.8)',
+                              color: isSelected ? 'white' : '#333',
+                              border: '1px solid rgba(144,202,249,0.3)'
+                            }}
+                            onClick={() => {
+                              const currentSelected = editSettings.personality.defaultTypeSettings[type.categoryName] || [];
+                              const newSelected = isSelected
+                                ? currentSelected.filter(label => label !== item.label)
+                                : [...currentSelected, item.label];
+                              handleDefaultTypeSettingChange(type.categoryName, newSelected);
+                            }}
+                          >
+                            {item.label}
+                          </span>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
-      {/* 타입 추가 모달 */}
-      {showAddTypeModal && (
-        <div style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          width: '100vw', 
-          height: '100vh', 
-          background: 'rgba(0,0,0,0.5)', 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{ 
-            background: 'white', 
-            padding: 24, 
-            borderRadius: 8, 
-            width: 400,
-            maxWidth: '90vw'
-          }}>
-            <h3 style={{ marginBottom: 16 }}>새 타입 추가</h3>
-            
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>카테고리명</label>
+        {/* 시스템 설정 */}
+        <div className={styles.adminSection}>
+          <h3 className={styles.adminSectionTitle}>시스템 설정</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+            <div className={styles.adminInputGroup}>
+              <label className={styles.adminLabel}>TMT 비율</label>
               <input
-                type="text"
-                value={newTypeData.categoryName}
-                onChange={e => setNewTypeData(prev => ({ ...prev, categoryName: e.target.value }))}
-                placeholder="예: 분위기, 성격, 취미"
-                style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
+                type="number"
+                value={editSettings.system.tmtRatio}
+                onChange={e => handleChange('system', 'tmtRatio', Number(e.target.value))}
+                className={styles.adminInput}
               />
             </div>
-            
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>타입</label>
-              <select
-                value={newTypeData.type}
-                onChange={e => setNewTypeData(prev => ({ ...prev, type: e.target.value as 'tag' | 'example' }))}
-                style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-              >
-                <option value="tag">태그형</option>
-                <option value="example">예시형</option>
-              </select>
+            <div className={styles.adminInputGroup}>
+              <label className={styles.adminLabel}>관계/자아 추출 주기</label>
+              <input
+                type="number"
+                value={editSettings.system.extractInterval}
+                onChange={e => handleChange('system', 'extractInterval', Number(e.target.value))}
+                className={styles.adminInput}
+              />
             </div>
-            
-            {newTypeData.type === 'tag' ? (
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>초기 태그 (콤마로 구분)</label>
-                <input
-                  type="text"
-                  value={newTypeData.tagInput}
-                  onChange={e => setNewTypeData(prev => ({ ...prev, tagInput: e.target.value }))}
-                  placeholder="예: 어른스러움, 청년스러움, 따뜻함"
-                  style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-                />
-              </div>
-            ) : (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ marginBottom: 8 }}>
-                  <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>라벨</label>
-                  <input
-                    type="text"
-                    value={newTypeData.labelInput}
-                    onChange={e => setNewTypeData(prev => ({ ...prev, labelInput: e.target.value }))}
-                    placeholder="예: 이모티콘 스타일"
-                    style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-                  />
-                </div>
-                <div>
-                  <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>예시</label>
-                  <input
-                    type="text"
-                    value={newTypeData.exampleInput}
-                    onChange={e => setNewTypeData(prev => ({ ...prev, exampleInput: e.target.value }))}
-                    placeholder="예: 😊😂"
-                    style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
-                  />
-                </div>
-              </div>
-            )}
-            
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowAddTypeModal(false)}
-                style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer' }}
-              >
-                취소
-              </button>
-              <button
-                onClick={handleAddType}
-                style={{ padding: '8px 16px', background: '#4caf50', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-              >
-                추가
-              </button>
+            <div className={styles.adminInputGroup}>
+              <label className={styles.adminLabel}>최대 메시지 길이</label>
+              <input
+                type="number"
+                value={editSettings.system.maxMessageLength}
+                onChange={e => handleChange('system', 'maxMessageLength', Number(e.target.value))}
+                className={styles.adminInput}
+              />
             </div>
           </div>
         </div>
-      )}
 
-      {/* 백업 생성 모달 */}
-      {showBackupModal && (
-        <div style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          width: '100vw', 
-          height: '100vh', 
-          background: 'rgba(0,0,0,0.5)', 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{ 
-            background: 'white', 
-            padding: 24, 
-            borderRadius: 8, 
-            width: 400,
-            maxWidth: '90vw'
-          }}>
-            <h3 style={{ marginBottom: 16 }}>타입 백업 생성</h3>
-            
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ fontWeight: 600, display: 'block', marginBottom: 6 }}>백업 이름</label>
+        {/* AI 설정 */}
+        <div className={styles.adminSection}>
+          <h3 className={styles.adminSectionTitle}>AI 설정</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
+            <div className={styles.adminInputGroup}>
+              <label className={styles.adminLabel}>AI 모델</label>
               <input
                 type="text"
-                value={backupName}
-                onChange={e => setBackupName(e.target.value)}
-                placeholder="예: 2024년 7월 기본 설정"
-                style={{ width: '100%', padding: 8, borderRadius: 4, border: '1px solid #ddd' }}
+                value={editSettings.ai.model}
+                onChange={e => handleChange('ai', 'model', e.target.value)}
+                className={styles.adminInput}
               />
             </div>
-            
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setShowBackupModal(false)}
-                style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer' }}
-              >
-                취소
-              </button>
-              <button
-                onClick={handleCreateBackup}
-                style={{ padding: '8px 16px', background: '#ff9800', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+            <div className={styles.adminInputGroup}>
+              <label className={styles.adminLabel}>Temperature</label>
+              <input
+                type="number"
+                step="0.1"
+                value={editSettings.ai.temperature}
+                onChange={e => handleChange('ai', 'temperature', Number(e.target.value))}
+                className={styles.adminInput}
+              />
+            </div>
+            <div className={styles.adminInputGroup}>
+              <label className={styles.adminLabel}>Max Tokens</label>
+              <input
+                type="number"
+                value={editSettings.ai.maxTokens}
+                onChange={e => handleChange('ai', 'maxTokens', Number(e.target.value))}
+                className={styles.adminInput}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* 타입 관리 */}
+        <div className={styles.adminSection}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 className={styles.adminSectionTitle}>타입 관리</h3>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button 
+                onClick={() => setShowBackupModal(true)}
+                className={styles.adminButton}
               >
                 백업 생성
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 백업 복원 모달 */}
-      {showRestoreModal && (
-        <div style={{ 
-          position: 'fixed', 
-          top: 0, 
-          left: 0, 
-          width: '100vw', 
-          height: '100vh', 
-          background: 'rgba(0,0,0,0.5)', 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center',
-          zIndex: 1000
-        }}>
-          <div style={{ 
-            background: 'white', 
-            padding: 24, 
-            borderRadius: 8, 
-            width: 500,
-            maxWidth: '90vw',
-            maxHeight: '80vh',
-            overflowY: 'auto'
-          }}>
-            <h3 style={{ marginBottom: 16 }}>타입 백업 복원</h3>
-            
-            {backups.length === 0 ? (
-              <p>저장된 백업이 없습니다.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {backups.map(backup => (
-                  <div key={backup.id} style={{ 
-                    padding: 12, 
-                    border: '1px solid #ddd', 
-                    borderRadius: 4,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                  }}>
-                    <div>
-                      <div style={{ fontWeight: 600 }}>{backup.name}</div>
-                      <div style={{ fontSize: 12, color: '#666' }}>
-                        {new Date(backup.date).toLocaleString()}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleRestoreBackup(backup)}
-                      style={{ padding: '6px 12px', background: '#9c27b0', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
-                    >
-                      복원
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-              <button
-                onClick={() => setShowRestoreModal(false)}
-                style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer' }}
+              <button 
+                onClick={() => setShowRestoreModal(true)}
+                className={styles.adminButtonSecondary}
               >
-                닫기
+                백업 복원
+              </button>
+              <button 
+                onClick={() => setShowAddTypeModal(true)}
+                className={styles.adminButton}
+              >
+                타입 추가
               </button>
             </div>
           </div>
+          
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={editSettings.personality.types.map((_, index) => `type-${index}`)}
+              strategy={verticalListSortingStrategy}
+            >
+              {editSettings.personality.types.map((type, typeIndex) => (
+                <SortableTypeItem
+                  key={`type-${typeIndex}`}
+                  type={type}
+                  typeIndex={typeIndex}
+                  onDeleteType={handleDeleteType}
+                  onAddTagItem={handleAddTagItem}
+                  onAddExampleItem={handleAddExampleItem}
+                  onDeleteItem={handleDeleteItem}
+                  onUpdateMaxSelection={handleUpdateMaxSelection}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
-      )}
 
-      {/* 타입 삭제 확인 모달 */}
-      {showDeleteTypeModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100vw',
-          height: '100vh',
-          background: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 2000
-        }}>
-          <div style={{
-            background: 'white',
-            padding: 24,
-            borderRadius: 8,
-            width: 400,
-            maxWidth: '90vw',
-            textAlign: 'center'
-          }}>
-            <h3 style={{ marginBottom: 16 }}>타입 삭제</h3>
-            <p style={{ marginBottom: 24, color: '#d32f2f' }}>
-              타입을 삭제하면 해당 타입에 속한 모든 태그/예시도 함께 삭제됩니다.<br />정말 삭제하시겠습니까?
-            </p>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-              <button onClick={cancelDeleteType} style={{ padding: '8px 16px', background: '#f5f5f5', border: '1px solid #ddd', borderRadius: 4, cursor: 'pointer' }}>취소</button>
-              <button onClick={confirmDeleteType} style={{ padding: '8px 16px', background: '#f44336', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}>삭제</button>
+        {/* 타입 추가 모달 */}
+        {showAddTypeModal && (
+          <div className={styles.adminModal}>
+            <div className={styles.adminModalContent}>
+              <h3 style={{ marginBottom: '16px' }}>새 타입 추가</h3>
+              
+              <div style={{ marginBottom: '16px' }}>
+                <label className={styles.adminLabel}>카테고리명</label>
+                <input
+                  type="text"
+                  value={newTypeData.categoryName}
+                  onChange={e => setNewTypeData(prev => ({ ...prev, categoryName: e.target.value }))}
+                  placeholder="예: 분위기, 성격, 취미"
+                  className={styles.adminInput}
+                />
+              </div>
+              
+              <div style={{ marginBottom: '16px' }}>
+                <label className={styles.adminLabel}>타입</label>
+                <select
+                  value={newTypeData.type}
+                  onChange={e => setNewTypeData(prev => ({ ...prev, type: e.target.value as 'tag' | 'example' }))}
+                  className={styles.adminInput}
+                >
+                  <option value="tag">태그형</option>
+                  <option value="example">예시형</option>
+                </select>
+              </div>
+              
+              {newTypeData.type === 'tag' ? (
+                <div style={{ marginBottom: '16px' }}>
+                  <label className={styles.adminLabel}>초기 태그 (콤마로 구분)</label>
+                  <input
+                    type="text"
+                    value={newTypeData.tagInput}
+                    onChange={e => setNewTypeData(prev => ({ ...prev, tagInput: e.target.value }))}
+                    placeholder="예: 어른스러움, 청년스러움, 따뜻함"
+                    className={styles.adminInput}
+                  />
+                </div>
+              ) : (
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ marginBottom: '8px' }}>
+                    <label className={styles.adminLabel}>라벨</label>
+                    <input
+                      type="text"
+                      value={newTypeData.labelInput}
+                      onChange={e => setNewTypeData(prev => ({ ...prev, labelInput: e.target.value }))}
+                      placeholder="예: 이모티콘 스타일"
+                      className={styles.adminInput}
+                    />
+                  </div>
+                  <div>
+                    <label className={styles.adminLabel}>예시</label>
+                    <input
+                      type="text"
+                      value={newTypeData.exampleInput}
+                      onChange={e => setNewTypeData(prev => ({ ...prev, exampleInput: e.target.value }))}
+                      placeholder="예: 😊😂"
+                      className={styles.adminInput}
+                    />
+                  </div>
+                </div>
+              )}
+              
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setShowAddTypeModal(false)}
+                  className={styles.adminButtonSecondary}
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleAddType}
+                  className={styles.adminButton}
+                >
+                  추가
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* 저장/취소 버튼 */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-        <button onClick={() => navigate(-1)} style={{ padding: '8px 18px', borderRadius: 8, border: '1px solid #ccc', background: '#f5f5f5', color: '#333', fontWeight: 500 }}>취소</button>
-        <button onClick={handleSave} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, background: '#1976d2', color: '#fff', fontWeight: 700, border: 'none' }}>저장</button>
+        {/* 백업 생성 모달 */}
+        {showBackupModal && (
+          <div className={styles.adminModal}>
+            <div className={styles.adminModalContent}>
+              <h3 style={{ marginBottom: '16px' }}>타입 백업 생성</h3>
+              
+              <div style={{ marginBottom: '16px' }}>
+                <label className={styles.adminLabel}>백업 이름</label>
+                <input
+                  type="text"
+                  value={backupName}
+                  onChange={e => setBackupName(e.target.value)}
+                  placeholder="예: 2024년 7월 기본 설정"
+                  className={styles.adminInput}
+                />
+              </div>
+              
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={() => setShowBackupModal(false)}
+                  className={styles.adminButtonSecondary}
+                >
+                  취소
+                </button>
+                <button
+                  onClick={handleCreateBackup}
+                  className={styles.adminButton}
+                >
+                  백업 생성
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 백업 복원 모달 */}
+        {showRestoreModal && (
+          <div className={styles.adminModal}>
+            <div className={styles.adminModalContent}>
+              <h3 style={{ marginBottom: '16px' }}>타입 백업 복원</h3>
+              
+              {backups.length === 0 ? (
+                <p>저장된 백업이 없습니다.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {backups.map(backup => (
+                    <div key={backup.id} className={styles.adminBackupItem}>
+                      <div style={{ fontWeight: '600' }}>{backup.name}</div>
+                      <div style={{ fontSize: '12px', color: '#666' }}>
+                        {new Date(backup.date).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+                <button
+                  onClick={() => setShowRestoreModal(false)}
+                  className={styles.adminButtonSecondary}
+                >
+                  닫기
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 타입 삭제 확인 모달 */}
+        {showDeleteTypeModal && (
+          <div className={styles.adminModal}>
+            <div className={styles.adminModalContent}>
+              <h3 style={{ marginBottom: '16px' }}>타입 삭제</h3>
+              <p style={{ marginBottom: '24px', color: '#d32f2f' }}>
+                타입을 삭제하면 해당 타입에 속한 모든 태그/예시도 함께 삭제됩니다.<br />정말 삭제하시겠습니까?
+              </p>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                <button onClick={cancelDeleteType} className={styles.adminButtonSecondary}>취소</button>
+                <button onClick={confirmDeleteType} className={styles.adminButtonDanger}>삭제</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 저장/취소 버튼 */}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '16px' }}>
+          <button onClick={() => navigate(-1)} className={styles.adminButtonSecondary}>취소</button>
+          <button onClick={handleSave} disabled={saving} className={styles.adminButton}>저장</button>
+        </div>
       </div>
     </div>
   );

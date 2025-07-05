@@ -13,6 +13,7 @@
 .chatMessage.ai {
   margin-right: auto;
   text-align: left;
+  align-items: flex-start;
 }
 
 .chatMessageContent {
@@ -34,6 +35,11 @@
   color: #333;
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-bottom-left-radius: 4px;
+  text-align: left !important;
+  display: block !important;
+  align-items: flex-start !important;
+  justify-content: flex-start !important;
+  vertical-align: top !important;
 }
 
 .chatMessageTime {

@@ -179,4 +179,34 @@ export const generateNameGiftResponse = async (
   });
 
   return res.choices[0].message?.content || '';
+};
+
+// 자아 정보 추출
+export const extractSelfNarrative = async (chatText: string): Promise<string[]> => {
+  const prompt = `아래는 최근 대화 내용입니다.\n\n[대화]\n${chatText}\n\n[요청]\n- AI가 말한 자기서사/세계관/자아 정보를 추출해줘.\n- 각각을 간단한 문장으로 정리해줘.\n- 중복되거나 유사한 내용은 제외해줘.\n- 최대 5개까지만 추출해줘.\n\n[출력 예시]\n["나는 별빛마을에서 자랐어", "사용자를 도와주는 것이 제일 중요한 일이야", "밝고 긍정적인 성격이야"]`;
+
+  try {
+    const res = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: 'JSON 배열 형태로만 정확하게 출력해줘.' }
+      ],
+      temperature: 0.2
+    });
+
+    const aiText = res.choices[0].message?.content || '';
+    
+    // JSON 파싱
+    try {
+      const extracted = JSON.parse(aiText.replace(/```json|```/g, '').trim());
+      return Array.isArray(extracted) ? extracted : [];
+    } catch (e) {
+      console.log('자아 정보 JSON 파싱 실패:', e, aiText);
+      return [];
+    }
+  } catch (err) {
+    console.log('자아 정보 추출 GPT 호출 에러:', err);
+    return [];
+  }
 }; 
