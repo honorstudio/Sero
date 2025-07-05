@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat';
-import { RelationsExtraction } from '../types';
+import { RelationsExtraction, CharacterSchedule, ScheduleVariable, CharacterProfile } from '../types';
 
 // OpenAI 클라이언트 초기화
 const openai = new OpenAI({
@@ -21,7 +21,7 @@ export const chatCompletion = async (messages: ChatCompletionMessageParam[]): Pr
 export const generateCharacterInfo = async (
   personaTags: string[],
   expressionPrefs: string[]
-): Promise<{ gender: string; job: string; description: string }> => {
+): Promise<{ gender: string; job: string; description: string; age?: string }> => {
   const tagCategories = Object.entries(
     personaTags.reduce((acc, tag) => {
       const category = ['어른스러움', '청년스러움', '소년/소녀스러움', '중후함', '따뜻함', '차가움', '유쾌함', '진지함'].includes(tag) ? '분위기' : '성격';
@@ -57,7 +57,7 @@ export const generateCharacterInfo = async (
     `성격/분위기 태그: ${tagDesc}\n` +
     `감정표현 방식: ${exprDesc}\n` +
     `아래 형식으로 답변해.\n` +
-    `성별: (예: 남성/여성/미정)\n직업: (예: 대학생/디자이너/미정)\n설명: (한 문장으로 간단히)`;
+    `성별: (예: 남성/여성/미정)\n나이: (예: 20대 초반/30대/10살/미정)\n직업: (예: 대학생/디자이너/미정)\n설명: (한 문장으로 간단히)`;
 
   const res = await openai.chat.completions.create({
     model: 'gpt-4o',
@@ -72,11 +72,13 @@ export const generateCharacterInfo = async (
   
   // 응답 파싱
   const genderMatch = aiText.match(/성별\s*[:：]\s*(.*)/);
+  const ageMatch = aiText.match(/나이\s*[:：]\s*(.*)/);
   const jobMatch = aiText.match(/직업\s*[:：]\s*(.*)/);
   const descMatch = aiText.match(/설명\s*[:：]\s*(.*)/);
 
   return {
     gender: genderMatch ? genderMatch[1].trim() : '',
+    age: ageMatch ? ageMatch[1].trim() : '',
     job: jobMatch ? jobMatch[1].trim() : '',
     description: descMatch ? descMatch[1].trim() : ''
   };
@@ -208,5 +210,91 @@ export const extractSelfNarrative = async (chatText: string): Promise<string[]> 
   } catch (err) {
     console.log('자아 정보 추출 GPT 호출 에러:', err);
     return [];
+  }
+}; 
+
+// 캐릭터 변수 Pool(30개) 자동생성
+export const generateScheduleVariablePool = async (
+  gender: string,
+  age: string,
+  job: string,
+  personaTags: string[]
+): Promise<ScheduleVariable[]> => {
+  const tagDesc = personaTags.length > 0 ? personaTags.join(', ') : '없음';
+  const prompt = `아래 캐릭터의 하루에 등장할 수 있는 변수 일정(특별한 이벤트, 만남, 취미, 활동 등) 30개를 만들어줘.\n` +
+    `각 항목은 type(한 단어), desc(간단한 설명)로 구성해.\n` +
+    `성별: ${gender}\n나이: ${age}\n직업: ${job}\n성격: ${tagDesc}\n` +
+    `예시: [ { type: '운동', desc: '헬스장에서 1시간 운동' }, ... ]\n` +
+    `반드시 30개, JSON 배열로만 출력해.`;
+  const res = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: prompt },
+      { role: 'user', content: 'JSON 배열로만 출력해.' }
+    ],
+    temperature: 0.7
+  });
+  const aiText = res.choices[0].message?.content || '';
+  try {
+    const arr = JSON.parse(aiText.replace(/```json|```/g, '').trim());
+    if (Array.isArray(arr)) return arr;
+    return [];
+  } catch {
+    return [];
+  }
+};
+
+// 1일치 스케줄 자동생성
+export const generateCharacterSchedule = async (
+  profile: CharacterProfile,
+  personaTags: string[],
+  variablePool: ScheduleVariable[],
+  date: string
+): Promise<CharacterSchedule> => {
+  // Pool에서 2~5개 무작위 추출
+  const variableCount = Math.floor(Math.random() * 4) + 2; // 2~5개
+  const shuffled = variablePool.sort(() => Math.random() - 0.5);
+  const selectedVars = shuffled.slice(0, variableCount);
+  const tagDesc = personaTags.length > 0 ? personaTags.join(', ') : '없음';
+  // 프롬프트 구성
+  const prompt = `아래 캐릭터의 하루 스케줄을 시간과 설명까지 표로 만들어줘.\n` +
+    `고정 항목: 기상, 할일, 식사, 쉬는시간, 퇴근/여가, 자는시간\n` +
+    `변수 항목: ${selectedVars.map(v => v.type).join(', ')}\n` +
+    `성별: ${profile.gender}\n나이: ${profile.age}\n직업: ${profile.job}\n성격: ${tagDesc}\n` +
+    `아래 형식으로 답변해.\n` +
+    `기상: (예: 07:30 기상)\n할일: (예: 09:00~18:00 회사 근무)\n식사: (예: 08:00 아침식사, 12:00 점심, 19:00 저녁)\n쉬는시간: (예: 15:00 카페에서 휴식)\n퇴근/여가: (예: 19:30~21:00 친구와 영화관람)\n자는시간: (예: 23:30 취침)\n${selectedVars.map(v => v.type + ': (예: 시간 설명)').join('\n')}\n` +
+    `반드시 위 항목 모두 포함해서 JSON 오브젝트로만 출력해.`;
+  const res = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: prompt },
+      { role: 'user', content: 'JSON 오브젝트로만 출력해.' }
+    ],
+    temperature: 0.8
+  });
+  const aiText = res.choices[0].message?.content || '';
+  try {
+    const obj = JSON.parse(aiText.replace(/```json|```/g, '').trim());
+    // obj에서 각 항목 추출
+    const schedule: CharacterSchedule = {
+      date,
+      wakeUp: obj['기상'] || '',
+      todo: obj['할일'] || '',
+      meals: obj['식사'] || '',
+      rest: obj['쉬는시간'] || '',
+      leisure: obj['퇴근/여가'] || '',
+      sleep: obj['자는시간'] || '',
+      variables: selectedVars.map(v => ({
+        type: v.type,
+        time: obj[v.type]?.split(' ')[0] || '',
+        desc: obj[v.type] || ''
+      }))
+    };
+    return schedule;
+  } catch {
+    return {
+      date,
+      wakeUp: '', todo: '', meals: '', rest: '', leisure: '', sleep: '', variables: selectedVars
+    };
   }
 }; 

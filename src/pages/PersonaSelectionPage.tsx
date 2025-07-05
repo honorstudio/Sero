@@ -91,6 +91,20 @@ const PersonaSelectionPage: React.FC<PersonaSelectionPageProps> = ({ user }) => 
     loadPersonas();
   }, [user, globalSettings]);
 
+  // 페르소나 생성 후, 데이터가 완전히 반영될 때까지 재시도
+  const waitForPersonaReady = async (userId: string, personaId: string, maxTries = 10, delay = 200) => {
+    for (let i = 0; i < maxTries; i++) {
+      const persona = await personaService.getPersona(userId, personaId);
+      // 주요 필드가 비어있지 않으면 성공
+      if (persona && persona.tags.length > 0 && persona.characterProfile && persona.characterProfile.gender) {
+        return persona;
+      }
+      await new Promise(res => setTimeout(res, delay));
+    }
+    // 그래도 안되면 마지막 값 반환
+    return await personaService.getPersona(userId, personaId);
+  };
+
   // 페르소나 생성
   const handleCreatePersona = async () => {
     if (!newPersonaName.trim()) return;
@@ -125,7 +139,9 @@ const PersonaSelectionPage: React.FC<PersonaSelectionPageProps> = ({ user }) => 
         }
       };
 
-      await personaService.createPersona(user.uid, newPersonaData);
+      const newPersonaId = await personaService.createPersona(user.uid, newPersonaData);
+      // 폴링으로 데이터가 채워질 때까지 대기
+      await waitForPersonaReady(user.uid, newPersonaId);
       
       // 목록 새로고침
       const updatedList = await personaService.getPersonas(user.uid);
@@ -133,6 +149,9 @@ const PersonaSelectionPage: React.FC<PersonaSelectionPageProps> = ({ user }) => 
       
       setNewPersonaName('');
       setShowCreateModal(false);
+      
+      // 새로 생성된 페르소나와 바로 채팅 시작
+      navigate(`/chat/${newPersonaId}`);
     } catch (err) {
       console.error('페르소나 생성 실패:', err);
       alert('페르소나 생성에 실패했습니다.');

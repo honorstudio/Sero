@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { AiProfile, CharacterProfile } from '../../types';
 import { useGlobalSettings } from '../../hooks/useGlobalSettings';
 import styles from './ProfileModal.module.css';
+import { generateScheduleVariablePool, generateCharacterSchedule } from '../../services/openaiService';
+import { personaService } from '../../services/firebaseService';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -21,6 +23,15 @@ interface ProfileModalProps {
   onUpdateCharacterProfile: (profile: Partial<CharacterProfile>) => void;
   onUpdateAiName: (name: string) => Promise<string>;
   onUpdateSelfNarrative?: (narrative: string[]) => void; // 자아 업데이트 함수 추가
+  onProfileUpdated?: () => void;
+  user: any;
+  persona: any;
+}
+
+// 오늘 날짜 YYYY-MM-DD 반환 유틸
+function getTodayString() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 const ProfileModal: React.FC<ProfileModalProps> = ({
@@ -40,13 +51,17 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   onAutoGenerateCharacter,
   onUpdateCharacterProfile,
   onUpdateAiName,
-  onUpdateSelfNarrative
+  onUpdateSelfNarrative,
+  onProfileUpdated,
+  user,
+  persona
 }) => {
   const [tagEditMode, setTagEditMode] = useState(false);
   const [aiNameInput, setAiNameInput] = useState(aiProfile?.name || '세로');
   const [aiNameEditOpen, setAiNameEditOpen] = useState(false);
   const [aiNameError, setAiNameError] = useState('');
   const [aiNameSaving, setAiNameSaving] = useState(false);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
 
   // 글로벌 설정에서 태그들 가져오기
   const { settings: globalSettings } = useGlobalSettings();
@@ -73,8 +88,38 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     setAiNameSaving(false);
   };
 
-  const handleProfileResetComplete = () => {
+  const handleProfileResetComplete = async () => {
     setTagEditMode(false);
+    if (!user || !persona) {
+      if (onProfileUpdated) onProfileUpdated();
+      return;
+    }
+    setScheduleLoading(true);
+    try {
+      // Pool 생성
+      const pool = await generateScheduleVariablePool(
+        characterProfile.gender,
+        characterProfile.age || '',
+        characterProfile.job,
+        personaTags
+      );
+      // 오늘 날짜 기준 스케줄 생성
+      const today = getTodayString();
+      const schedule = await generateCharacterSchedule(
+        { ...characterProfile, gender: characterProfile.gender, age: characterProfile.age, job: characterProfile.job },
+        personaTags,
+        pool,
+        today
+      );
+      // DB 저장
+      await personaService.setPersonaScheduleAndPool(user.uid, persona.id, pool, schedule);
+      // UI에 반영
+      onUpdateCharacterProfile({ schedule });
+    } catch (e) {
+      // 에러 처리 필요시 추가
+    }
+    setScheduleLoading(false);
+    if (onProfileUpdated) onProfileUpdated();
   };
 
   return (
@@ -266,6 +311,13 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   />
                   <input
                     type="text"
+                    placeholder="나이 (예: 20대 초반, 30대, 10살, 미정)"
+                    value={characterProfile.age || ''}
+                    onChange={e => onUpdateCharacterProfile({ age: e.target.value })}
+                    className={styles.characterInput}
+                  />
+                  <input
+                    type="text"
                     placeholder="직업 (예: 대학생, 디자이너, 미정)"
                     value={characterProfile.job}
                     onChange={e => onUpdateCharacterProfile({ job: e.target.value })}
@@ -279,6 +331,57 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   />
                 </div>
               </div>
+
+              {/* 오늘의 스케줄 섹션 */}
+              {scheduleLoading ? (
+                <div className={styles.scheduleSection}>
+                  <div className={styles.scheduleLoading}>스케줄 생성 중...</div>
+                </div>
+              ) : characterProfile.schedule ? (
+                <div className={styles.scheduleSection}>
+                  <div className={styles.scheduleTitle}>
+                    오늘의 스케줄 
+                    <span className={styles.scheduleDate}>({characterProfile.schedule.date})</span>
+                  </div>
+                  <table className={styles.scheduleTable}>
+                    <thead>
+                      <tr>
+                        <th>시간대</th>
+                        <th>일정</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>기상</td><td>{characterProfile.schedule.wakeUp}</td></tr>
+                      <tr><td>할일</td><td>{characterProfile.schedule.todo}</td></tr>
+                      <tr><td>식사</td><td>{characterProfile.schedule.meals}</td></tr>
+                      <tr><td>쉬는시간</td><td>{characterProfile.schedule.rest}</td></tr>
+                      <tr><td>퇴근/여가</td><td>{characterProfile.schedule.leisure}</td></tr>
+                      <tr><td>자는시간</td><td>{characterProfile.schedule.sleep}</td></tr>
+                      {characterProfile.schedule.variables.map((v, i) => (
+                        <tr key={i}><td>{v.type}</td><td>{v.desc}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : null}
+
+              {/* Pool 목록 섹션 */}
+              {!scheduleLoading && characterProfile.scheduleVariablePool && characterProfile.scheduleVariablePool.length > 0 && (
+                <div className={styles.poolSection}>
+                  <div className={styles.poolTitle}>
+                    변수 Pool 목록 
+                    <span className={styles.poolCount}>({characterProfile.scheduleVariablePool.length}개)</span>
+                  </div>
+                  <div className={styles.poolList}>
+                    {characterProfile.scheduleVariablePool.map((item, index) => (
+                      <div key={index} className={styles.poolItem}>
+                        <span className={styles.poolItemType}>{item.type}</span>
+                        <span className={styles.poolItemDesc}>{item.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* 자아 정보 섹션 */}
               <div className={styles.profileSection}>
@@ -296,6 +399,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                               onClick={() => {
                                 const newNarrative = selfNarrative.filter((_, i) => i !== index);
                                 onUpdateSelfNarrative(newNarrative);
+                                onProfileUpdated && onProfileUpdated();
                               }}
                               className={styles.removeNarrativeBtn}
                               aria-label="자아 정보 삭제"
@@ -373,10 +477,58 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 <div className={styles.profileSectionTitle}>가상 캐릭터 정보</div>
                 <div className={styles.characterInfo}>
                   <div>성별: {characterProfile.gender || '미정'}</div>
+                  <div>나이: {characterProfile.age || '미정'}</div>
                   <div>직업: {characterProfile.job || '미정'}</div>
                   <div>설명: {characterProfile.description || '없음'}</div>
                 </div>
               </div>
+
+              {/* 오늘의 스케줄 섹션 (읽기 전용) */}
+              {characterProfile.schedule && (
+                <div className={styles.scheduleSection}>
+                  <div className={styles.scheduleTitle}>
+                    오늘의 스케줄 
+                    <span className={styles.scheduleDate}>({characterProfile.schedule.date})</span>
+                  </div>
+                  <table className={styles.scheduleTable}>
+                    <thead>
+                      <tr>
+                        <th>시간대</th>
+                        <th>일정</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr><td>기상</td><td>{characterProfile.schedule.wakeUp}</td></tr>
+                      <tr><td>할일</td><td>{characterProfile.schedule.todo}</td></tr>
+                      <tr><td>식사</td><td>{characterProfile.schedule.meals}</td></tr>
+                      <tr><td>쉬는시간</td><td>{characterProfile.schedule.rest}</td></tr>
+                      <tr><td>퇴근/여가</td><td>{characterProfile.schedule.leisure}</td></tr>
+                      <tr><td>자는시간</td><td>{characterProfile.schedule.sleep}</td></tr>
+                      {characterProfile.schedule.variables.map((v, i) => (
+                        <tr key={i}><td>{v.type}</td><td>{v.desc}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Pool 목록 섹션 (읽기 전용) */}
+              {characterProfile.scheduleVariablePool && characterProfile.scheduleVariablePool.length > 0 && (
+                <div className={styles.poolSection}>
+                  <div className={styles.poolTitle}>
+                    변수 Pool 목록 
+                    <span className={styles.poolCount}>({characterProfile.scheduleVariablePool.length}개)</span>
+                  </div>
+                  <div className={styles.poolList}>
+                    {characterProfile.scheduleVariablePool.map((item, index) => (
+                      <div key={index} className={styles.poolItem}>
+                        <span className={styles.poolItemType}>{item.type}</span>
+                        <span className={styles.poolItemDesc}>{item.desc}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* 자아 정보 섹션 (읽기 전용) */}
               <div className={styles.profileSection}>
@@ -402,8 +554,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
 
           {/* 버튼 */}
           {tagEditMode ? (
-            <button className={styles.profileResetBtn} onClick={handleProfileResetComplete}>
-              재설정 완료
+            <button className={styles.profileResetBtn} onClick={handleProfileResetComplete} disabled={scheduleLoading}>
+              {scheduleLoading ? '스케줄 생성 중...' : '재설정 완료'}
             </button>
           ) : (
             <button className={styles.profileResetBtn} onClick={() => setTagEditMode(true)}>

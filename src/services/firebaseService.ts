@@ -15,7 +15,7 @@ import {
   deleteDoc 
 } from 'firebase/firestore';
 import { db } from '../firebase';
-import { Message, ProfileData, RelationsData, UserMeta, PersonaListItem, Persona, CreatePersonaRequest } from '../types';
+import { Message, ProfileData, RelationsData, UserMeta, PersonaListItem, Persona, CreatePersonaRequest, CharacterSchedule, ScheduleVariable } from '../types';
 
 // 메시지 관련 서비스
 export const messageService = {
@@ -314,7 +314,14 @@ export const personaService = {
           createdAt: data.createdAt?.toDate() || new Date(),
           updatedAt: data.updatedAt?.toDate() || new Date(),
           tags: data.tags || [],
-          characterProfile: data.characterProfile || { gender: '', job: '', description: '' },
+          characterProfile: {
+            gender: data.characterProfile?.gender || '',
+            job: data.characterProfile?.job || '',
+            description: data.characterProfile?.description || '',
+            age: data.characterProfile?.age,
+            schedule: data.characterProfile?.schedule,
+            scheduleVariablePool: data.characterProfile?.scheduleVariablePool
+          } as import('../types').CharacterProfile,
           expressionPrefs: data.expressionPrefs || [],
           tmtRatio: data.tmtRatio || 50
         };
@@ -359,5 +366,27 @@ export const personaService = {
     };
 
     return this.createPersona(userId, defaultPersonaData);
+  },
+
+  // 페르소나 스케줄/변수Pool 저장
+  async setPersonaScheduleAndPool(userId: string, personaId: string, pool: ScheduleVariable[], schedule: CharacterSchedule) {
+    const personaRef = doc(db, 'personas', userId, 'items', personaId);
+    await updateDoc(personaRef, {
+      'characterProfile.scheduleVariablePool': pool,
+      'characterProfile.schedule': schedule
+    });
+  },
+
+  // 페르소나 스케줄/변수Pool 불러오기
+  async getPersonaScheduleAndPool(userId: string, personaId: string): Promise<{ pool: ScheduleVariable[]; schedule: CharacterSchedule | null }> {
+    const personaRef = doc(db, 'personas', userId, 'items', personaId);
+    const snap = await getDoc(personaRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      const pool = data.characterProfile?.scheduleVariablePool || [];
+      const schedule = data.characterProfile?.schedule || null;
+      return { pool, schedule };
+    }
+    return { pool: [], schedule: null };
   }
 }; 

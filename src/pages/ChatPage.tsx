@@ -36,9 +36,15 @@ const ChatPage: React.FC<ChatPageProps> = ({ user }) => {
           // 기본 채팅 (기존 "세로" 페르소나 사용)
           const personas = await personaService.getPersonas(user.uid);
           if (personas.length > 0) {
-            // 첫 번째 페르소나 사용
+            // 첫 번째 페르소나 사용 (캐시 방지를 위해 강제 새로고침)
             const defaultPersona = await personaService.getPersona(user.uid, personas[0].id);
-            setPersona(defaultPersona);
+            if (defaultPersona) {
+              setPersona(defaultPersona);
+            } else {
+              // 페르소나가 없으면 선택 페이지로 이동
+              navigate('/personas');
+              return;
+            }
           } else {
             // 페르소나가 없으면 선택 페이지로 이동
             navigate('/personas');
@@ -77,7 +83,7 @@ const ChatPage: React.FC<ChatPageProps> = ({ user }) => {
 
   return (
     <div className="messenger-container">
-      <ChatInterface user={user} persona={persona} />
+      <ChatInterface user={user} persona={persona} onPersonaUpdated={setPersona} />
     </div>
   );
 };

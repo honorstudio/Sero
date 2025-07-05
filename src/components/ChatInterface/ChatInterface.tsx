@@ -9,7 +9,7 @@ import { useGlobalSettings } from '../../hooks/useGlobalSettings';
 import { useAdminRole } from '../../hooks/useAdminRole';
 import { auth, db } from '../../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
-import { profileService } from '../../services/firebaseService';
+import { profileService, personaService } from '../../services/firebaseService';
 import { UserProfile, Message } from '../../types';
 import OpenAI from 'openai';
 import type { ChatCompletionMessageParam } from 'openai/resources/chat';
@@ -19,6 +19,7 @@ import { debugSystemPrompt, errorLog } from '../../utils/debugUtils';
 interface ChatInterfaceProps {
   user: any;
   persona?: any;
+  onPersonaUpdated?: (persona: any) => void;
 }
 
 // OpenAI 클라이언트 초기화
@@ -27,7 +28,7 @@ const openai = new OpenAI({
   dangerouslyAllowBrowser: true,
 });
 
-const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, persona }) => {
+const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, persona, onPersonaUpdated }) => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [aiProfile, setAiProfile] = useState<{ name: string } | null>(null);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -64,6 +65,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, persona }) => {
   // 페르소나 데이터가 변경될 때 상태 업데이트
   useEffect(() => {
     if (persona) {
+      console.log('페르소나 데이터 업데이트:', persona);
       setPersonaTags(persona.tags || []);
       setExpressionPrefs(persona.expressionPrefs || []);
       setTmtRatio(persona.tmtRatio || 50);
@@ -345,6 +347,22 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, persona }) => {
       return '당신은 친근하고 도움이 되는 AI 어시스턴트입니다.';
     }
     
+    console.log('시스템 프롬프트 생성 - 현재 페르소나:', {
+      name: persona.name,
+      tags: persona.tags,
+      expressionPrefs: persona.expressionPrefs,
+      tmtRatio: persona.tmtRatio,
+      characterProfile: persona.characterProfile
+    });
+    
+    // 스케줄 디버그 로그 추가
+    console.log('스케줄 디버그:', {
+      hasCharacterProfile: !!persona.characterProfile,
+      hasSchedule: !!persona.characterProfile?.schedule,
+      schedule: persona.characterProfile?.schedule,
+      today: new Date().toISOString().split('T')[0]
+    });
+    
     // TMT 비율에 따른 답변 길이 지시
     let tmtInstruction = '';
     const tmtRatio = persona.tmtRatio || 50;
@@ -381,9 +399,44 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, persona }) => {
     let characterInfo = '';
     if (persona.characterProfile) {
       const char = persona.characterProfile;
-      if (char.gender || char.job || char.description) {
-        characterInfo = `\n[캐릭터 정보]\n성별: ${char.gender || '미정'}\n직업: ${char.job || '미정'}\n설명: ${char.description || '없음'}`;
+      if (char.gender || char.job || char.description || char.age) {
+        characterInfo = `\n[캐릭터 정보]\n성별: ${char.gender || '미정'}\n나이: ${char.age || '미정'}\n직업: ${char.job || '미정'}\n설명: ${char.description || '없음'}`;
       }
+    }
+    
+    // 오늘의 스케줄 정보 추가
+    let scheduleInfo = '';
+    if (persona.characterProfile?.schedule) {
+      const schedule = persona.characterProfile.schedule;
+      
+      // ProfileModal의 getTodayString() 함수와 동일한 형식 사용
+      const d = new Date();
+      const today = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+      
+      console.log('스케줄 비교:', {
+        scheduleDate: schedule.date,
+        today: today,
+        isMatch: schedule.date === today,
+        scheduleDateType: typeof schedule.date,
+        todayType: typeof today
+      });
+      
+      // 오늘 날짜와 스케줄 날짜가 일치하는 경우에만 표시
+      if (schedule.date === today) {
+        scheduleInfo = `\n[오늘의 스케줄]\n기상: ${schedule.wakeUp}\n할일: ${schedule.todo}\n식사: ${schedule.meals}\n쉬는시간: ${schedule.rest}\n퇴근/여가: ${schedule.leisure}\n자는시간: ${schedule.sleep}`;
+        
+        // 변수 일정들 추가
+        if (schedule.variables && schedule.variables.length > 0) {
+          const variablesText = schedule.variables.map((v: any) => `${v.type}: ${v.desc}`).join('\n');
+          scheduleInfo += `\n${variablesText}`;
+        }
+        
+        console.log('생성된 스케줄 정보:', scheduleInfo);
+      } else {
+        console.log('스케줄 날짜가 오늘과 일치하지 않음');
+      }
+    } else {
+      console.log('스케줄 정보가 없음');
     }
     
     // 글로벌 설정의 동적 타입 시스템에 따라 성격 및 표현 정보 생성
@@ -426,7 +479,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ user, persona }) => {
 
 [성격 및 표현]
 ${personalityInfo || '- 설정된 성격 정보 없음'}
-- 답변 길이: ${tmtInstruction}${characterInfo}${relationsInfo}${selfInfo}
+- 답변 길이: ${tmtInstruction}${characterInfo}${scheduleInfo}${relationsInfo}${selfInfo}
 
 지침을 지키고 일관성 있게 기본정보와 성격 및 표현 그리고 캐릭터 정보가 너라면 어떻게 대답할지 생각해서 대답해.`;
   };
@@ -464,6 +517,16 @@ ${personalityInfo || '- 설정된 성격 정보 없음'}
       navigate('/');
     } catch (error) {
       console.error('로그아웃 실패:', error);
+    }
+  };
+
+  // 프로필 모달에서 정보가 변경될 때 최신 persona fetch 및 상위로 전달
+  const handleProfileUpdated = async () => {
+    if (persona?.id && user?.uid) {
+      const updatedPersona = await personaService.getPersona(user.uid, persona.id);
+      if (updatedPersona && onPersonaUpdated) {
+        onPersonaUpdated(updatedPersona);
+      }
     }
   };
 
@@ -637,6 +700,9 @@ ${personalityInfo || '- 설정된 성격 정보 없음'}
         onUpdateAiName={updateAiName}
         selfNarrative={selfNarrative} // 자아 정보 전달
         onUpdateSelfNarrative={updateSelfNarrative} // 자아 정보 업데이트 함수 전달
+        onProfileUpdated={handleProfileUpdated}
+        user={user}
+        persona={persona}
       />
     </>
   );

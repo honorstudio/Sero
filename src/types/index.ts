@@ -32,10 +32,30 @@ export interface AiProfile {
 }
 
 // 캐릭터 프로필 타입
+export type ScheduleVariable = {
+  type: string; // 예: '운동', '쇼핑', '병원', '특정인물 만남', ...
+  time: string; // 예: '18:00'
+  desc: string; // 예: '헬스장에서 1시간 운동'
+};
+
+export type CharacterSchedule = {
+  date: string; // YYYY-MM-DD
+  wakeUp: string;
+  todo: string;
+  meals: string;
+  rest: string;
+  leisure: string;
+  sleep: string;
+  variables: ScheduleVariable[];
+};
+
 export interface CharacterProfile {
   gender: string;
   job: string;
   description: string;
+  age?: string;
+  schedule?: CharacterSchedule;
+  scheduleVariablePool?: ScheduleVariable[];
 }
 
 // 관계도 관련 타입
